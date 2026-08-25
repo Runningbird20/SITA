@@ -27,6 +27,7 @@ class RepeatedAuthFailuresRule(DetectionRule):
         "distinct_source_ip_minimum": 3,
         "window_seconds": 900,
     }
+    mitre_technique_ids = ("T1110",)
 
     def evaluate(
         self, db: Session, events: Sequence[SecurityEvent], config: dict

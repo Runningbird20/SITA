@@ -677,7 +677,7 @@ Everything above is implemented and verified, matching the specification exactly
 
 Verified against both SQLite and a live Postgres container — `severity_factors` (JSONB) and the `alert_event` junction both confirmed correct via direct `psql` inspection, not just application-level assertions.
 
-One deliberate, documented gap: Phase 3 has no REST endpoint (see "Execution Pipeline & CLI" above), so it has no live-checkable HTTP surface. The frontend build-status dashboard (see [FRONTEND.md](FRONTEND.md)) shows it as a static green "Implemented" — distinct from the live-verified green "Working" used for Phases 0–2 — asserted from this phase's own test suite and report rather than checked at runtime, since there's nothing to check yet. It will switch to a live "Working" check once Phase 9 exposes alerts over the API.
+One deliberate, documented gap: Phase 3 has no REST endpoint (see "Execution Pipeline & CLI" above), so it has no live-checkable HTTP surface. The frontend build-status dashboard (see [FRONTEND.md](FRONTEND.md)) shows it as a static yellow "Implemented" — distinct from the live-verified green "Working" used for Phases 0–2 — asserted from this phase's own test suite and report rather than checked at runtime, since there's nothing to check yet. It will switch to a live "Working" check once Phase 9 exposes alerts over the API.
 
 See [Documentation/PHASE-3.md](PHASE-3.md) for the full narrative and `TODO.md` Phase 3 for the itemized checklist.
 
@@ -789,7 +789,7 @@ Everything above is implemented and verified, matching the specification exactly
 
 Verified against both SQLite and a live Postgres container — dedup, `event_ioc`/`alert_ioc` junction population, and confidence values all confirmed correct via direct `psql` inspection.
 
-Same deliberate gap as Phase 3: no REST endpoint (Phase 9's job), so the frontend dashboard shows Phase 4 as a static green "Implemented," not a live-checked "Working."
+Same deliberate gap as Phase 3: no REST endpoint (Phase 9's job), so the frontend dashboard shows Phase 4 as a static yellow "Implemented," not a live-checked "Working."
 
 LLM-assisted extraction (`[STRETCH]` in `TODO.md`) was not implemented in this pass — see `TODO.md` Phase 4 for what remains optional.
 
@@ -844,7 +844,7 @@ Two cases:
 | **Shared host** | `Alert`'s matched events' host `Entity` rows (this phase, including the alias bridge above) vs. the incident's aggregate host set | shared host |
 | **Shared MITRE technique** | `Alert.mitre_mappings` vs. the incident's aggregate technique set | — |
 
-The MITRE signal is real, tested code — but **inert in practice right now**: no `Detection` row carries a MITRE mapping until Phase 8 populates `detection_mitre_mapping`, so every alert's technique set is currently empty and this signal always contributes `0`. Built now rather than bolted on later, exactly like Phase 3's MITRE-mapping association objects were built in Phase 1 before Phase 3 could use them.
+The MITRE signal is real, tested code — but was **inert in practice** at the time this section was written: no `Detection` row carried a MITRE mapping until Phase 8 populated `detection_mitre_mapping`, so every alert's technique set was empty and this signal always contributed `0`. Built now rather than bolted on later, exactly like Phase 3's MITRE-mapping association objects were built in Phase 1 before Phase 3 could use them. **Update (Phase 8):** no longer inert — `run_mitre_mapping()` now populates `alert.mitre_mappings` for real, and this scoring code (unchanged since Phase 5) produces a genuine nonzero contribution; see [DEF.md § Phase 8](#phase-8-mitre-attck-integration).
 
 ## Scoring formula
 
@@ -922,7 +922,7 @@ Everything above is implemented and verified, matching the specification exactly
 
 Verified against both SQLite and a live Postgres container — the scenario's 4 alerts (`ssh_brute_force`, `suspicious_auth_pattern`, `port_scanning`, `suspicious_powershell`) correctly land in one incident titled `"SSH Brute Force → Suspicious Authentication Pattern → Port Scanning → Suspicious PowerShell Activity"`, while the unrelated standalone `auth/brute_force.jsonl` alert and the unrelated standalone `network/port_scan.jsonl` alert (same target host as the scenario, but ~2.7 hours later — a genuine near-miss, not a trivial case) both correctly form their own separate incidents.
 
-Same deliberate gap as Phase 3/4: no REST endpoint (Phase 9's job), so the frontend dashboard shows Phase 5 as a static green "Implemented," not a live-checked "Working."
+Same deliberate gap as Phase 3/4: no REST endpoint (Phase 9's job), so the frontend dashboard shows Phase 5 as a static yellow "Implemented," not a live-checked "Working."
 
 See [Documentation/PHASE-5.md](PHASE-5.md) for the full narrative and `TODO.md` Phase 5 for the itemized checklist.
 
@@ -1134,6 +1134,119 @@ Everything above is implemented and verified, matching the specification exactly
 
 Verified against a live Postgres container: seeded a real brute-force event burst through `run_detection`/`run_correlation`, ran `run_triage` with a `MockProvider` returning valid completions for every task, and confirmed (inside a rolled-back transaction, so nothing was left in the dev database) all 6 `AnalysisResult` rows persisted with `parsed_output` round-tripping through `JSONB` as a `dict`, 2 `Recommendation` rows from `investigation_steps`, and 1 `AlertMitreMapping` row from `mitre_suggestion` once a matching `MITRETechnique` row existed.
 
-Same deliberate gap as Phase 3–6: no REST endpoint (Phase 9's job), so the frontend dashboard shows Phase 7 as a static green "Implemented," not a live-checked "Working."
+Same deliberate gap as Phase 3–6: no REST endpoint (Phase 9's job), so the frontend dashboard shows Phase 7 as a static yellow "Implemented," not a live-checked "Working."
 
 See [Documentation/PHASE-7.md](PHASE-7.md) for the full narrative and `TODO.md` Phase 7 for the itemized checklist.
+
+---
+
+# Phase 8: MITRE ATT&CK Integration
+
+## Scope
+
+`MITRETechnique` and both its junction tables (`detection_mitre_mapping`, `alert_mitre_mapping`) were designed and migrated in Phase 1, and Phase 5's correlation scoring and Phase 7's `mitre_suggestion` task already read/write against them — but until now nothing ever populated `mitre_techniques`, so every one of those code paths has been running against an empty table. Phase 8 is entirely about making that data real: vendoring a local technique dataset, syncing it onto the 7 existing detection rules, and propagating that mapping onto fired alerts — with zero runtime dependency on attack.mitre.org or any ATT&CK API.
+
+## `[[mitre-data-source]]` resolved: curated subset, not the full Enterprise matrix
+
+Per the open question in TODO.md: a **curated subset matching implemented detection rules**, not a full vendored ATT&CK Enterprise snapshot. Six techniques cover the 7 existing rules (two rules intentionally share one technique — see the mapping table below):
+
+| `technique_id` | `name` | `tactic` |
+|---|---|---|
+| `T1110` | Brute Force | `credential-access` |
+| `T1110.001` | Brute Force: Password Guessing | `credential-access` |
+| `T1110.003` | Brute Force: Password Spraying | `credential-access` |
+| `T1078` | Valid Accounts | `initial-access` |
+| `T1046` | Network Service Discovery | `discovery` |
+| `T1059.001` | Command and Scripting Interpreter: PowerShell | `execution` |
+
+Vendored as `data/mitre/techniques.json` (a top-level `dataset_version` plus a `techniques` array — `technique_id`/`name`/`tactic`/`description` per entry), following the same "checked-in local dataset, not fetched at runtime" convention as `data/synthetic_events/`. `dataset_version` is `"curated-2026-08"` — a project-local curation tag with a date, not a specific official ATT&CK release number, since this is a hand-picked 6-technique subset rather than a re-vendored snapshot of any particular upstream release. **Refresh process**: manual — add a technique to the JSON file and re-run the loader whenever a new detection rule needs one; there is no periodic re-vendoring job, since the subset is defined by "what the rules currently need," not by keeping pace with upstream ATT&CK revisions.
+
+`tactic` stores one value per row (Phase 1's schema — a single `VARCHAR`), even though canonical ATT&CK techniques can belong to multiple tactics (e.g., `T1078` spans initial-access/persistence/privilege-escalation/defense-evasion). Each row here uses the tactic most relevant to *how this project's rules actually use the technique* — e.g., `T1078` is tagged `initial-access` because both rules that reference it (`suspicious_auth_pattern`, `impossible_travel`) detect anomalous account usage suggestive of unauthorized access, not persistence or privilege escalation specifically. This is a deliberate simplification of Phase 1's schema, not an error — recorded here rather than silently chosen.
+
+## Rules declare their techniques at definition time
+
+`DetectionRule` (Phase 3) gains one new `ClassVar`:
+
+```python
+class DetectionRule(ABC):
+    ...
+    mitre_technique_ids: ClassVar[tuple[str, ...]] = ()
+```
+
+| Rule | `mitre_technique_ids` |
+|---|---|
+| `ssh_brute_force` | `("T1110.001",)` |
+| `password_spraying` | `("T1110.003",)` |
+| `repeated_auth_failures` | `("T1110",)` — distributed, multi-source volume with no username/password evidence to justify a more specific sub-technique |
+| `suspicious_auth_pattern` | `("T1078",)` |
+| `impossible_travel` | `("T1078",)` — same technique as `suspicious_auth_pattern`, different detection signal (anomalous location vs. anomalous source-IP/off-hours) |
+| `port_scanning` | `("T1046",)` |
+| `suspicious_powershell` | `("T1059.001",)` |
+
+This is a static declaration on each rule class (like `category`/`default_severity`), not a lookup table maintained separately — the same "rule metadata lives on the rule" pattern Phase 3 already established.
+
+## Two sync passes, both idempotent and self-healing
+
+`app/mitre/pipeline.py::run_mitre_mapping(db, since=None)`:
+
+1. **Detection ↔ MITRETechnique** (`detection_mitre_mapping`): for every rule in `RULES`, for every `technique_id` in its `mitre_technique_ids`, look up the matching `MITRETechnique` row and link it onto that rule's `Detection` if not already linked. Calls `ensure_detections_seeded()` first (Phase 3's own idempotent Detection-row upsert), so this pass works standalone regardless of whether `run_detection()` has run yet.
+2. **Alert ↔ MITRETechnique, `source='rule'`** (`alert_mitre_mapping`): for every `Alert` (optionally scoped to `first_event_at >= since`), for every technique already linked to its `Detection` (pass 1's output), create an `AlertMitreMapping(source='rule')` row if one doesn't already exist for that `(alert, technique)` pair.
+
+Both passes only ever add rows for techniques that exist in the local `mitre_techniques` table — if the loader hasn't run yet, or a rule references a `technique_id` not yet vendored, that link is silently skipped and picked up on the next run once the data exists. This is the same "self-heals regardless of run order" property Phase 4's IOC pipeline and Phase 7's `mitre_suggestion` task already have, applied to the same table those depend on.
+
+**Recommended order**: `app.ingestion.cli` → `app.detection.cli` → `app.ioc.cli` → `app.mitre.cli` → `app.correlation.cli` → `app.triage.cli`. Phase 8 must run before Phase 5's correlation for that run to get a non-zero MITRE-agreement signal — `_build_alert_signature()` in `app/correlation/pipeline.py` already reads `alert.mitre_mappings` (built in Phase 5, dormant until now), so no correlation code changes with this phase; it simply stops being fed an empty set.
+
+## The technique display model
+
+`app/mitre/rollup.py` — pure, read-only functions over already-loaded ORM state, no persistence, same spirit as Phase 7's `context.py`:
+
+```python
+@dataclass
+class TechniqueEvidence:
+    alert_id: uuid.UUID
+    source: MitreMappingSource       # 'rule' | 'llm'
+    analysis_result_id: uuid.UUID | None   # set only when source='llm'
+    confidence: float | None               # the linked AnalysisResult's confidence when source='llm'; None for 'rule' (a deterministic assertion, not a probabilistic one)
+
+@dataclass
+class IncidentTechniqueEntry:
+    technique_id: str
+    name: str
+    tactic: str
+    evidence: list[TechniqueEvidence]      # which alerts, and via which source(s), pointed at this technique
+    sources: set[str]                       # {'rule'}, {'llm'}, or {'rule', 'llm'} — agreement is visible directly from this
+```
+
+`incident_technique_rollup(incident) -> list[IncidentTechniqueEntry]` groups every `AlertMitreMapping` across an incident's alerts by `technique_id`. No separate "agreement/disagreement" flag is computed — `sources` already tells a caller whether a technique came from the rule layer, the LLM, or both, matching Phase 7's own "provenance must be checkable from the data itself" decision for the exact same junction table.
+
+`techniques_by_tactic(entries) -> dict[str, list[IncidentTechniqueEntry]]` (the `[STRETCH]` task) — a plain groupby, for the eventual Phase 10 ATT&CK-matrix view.
+
+## Loader & CLI
+
+```python
+def load_techniques(db: Session, path: Path = DEFAULT_DATASET_PATH) -> MitreLoadReport: ...
+```
+
+Parses `data/mitre/techniques.json` through a small Pydantic model (`MitreDataset`/`MitreTechniqueRecord`, local to `app/mitre/loader.py` — an internal parsing contract for the vendored file, not an API I/O schema, so it doesn't belong in `app/schemas/`), then upserts by `technique_id`: update `name`/`tactic`/`description`/`dataset_version` if a row already exists and any field changed, insert if not. Idempotent — re-running against an unchanged file makes zero writes.
+
+`uv run python -m app.mitre.cli [--since ...]` runs the loader and then both `run_mitre_mapping()` passes in one shot, printing both reports — the two steps are always run together in practice (there's no scenario where you'd want techniques loaded without the mapping synced, or vice versa), so one combined CLI rather than two.
+
+## Phase 8 Status: implemented
+
+Everything above is implemented and verified, matching the specification exactly:
+
+- Vendored dataset: `data/mitre/techniques.json` (6 techniques, `dataset_version: "curated-2026-08"`)
+- Rule declarations: `DetectionRule.mitre_technique_ids` (`backend/app/detection/base.py`), set on all 7 rule classes
+- Loader: `backend/app/mitre/loader.py` (`load_techniques`, `MitreDataset`/`MitreTechniqueRecord`)
+- Sync pipeline: `backend/app/mitre/pipeline.py` (`run_mitre_mapping` — Detection↔MITRETechnique then Alert↔MITRETechnique(`source='rule'`) passes)
+- Display model: `backend/app/mitre/rollup.py` (`incident_technique_rollup`, `techniques_by_tactic`)
+- CLI: `backend/app/mitre/cli.py` (`uv run python -m app.mitre.cli [--since ...]`)
+- `MitreLoadReport`/`MitreMappingReport` schemas: `backend/app/schemas/mitre_run.py`
+- Tests: `backend/tests/unit/test_mitre_{loader,rule_mapping,pipeline,rollup,cli}.py` (18 cases — real-dataset loading and idempotency, custom-dataset create/update, every rule maps to a technique_id present in the vendored file, both sync passes including self-healing when the loader runs *after* detection, `since` scoping, the technique-display-model grouping across rule/llm sources with per-evidence confidence, and — a direct regression against TODO.md's own "inert until Phase 8" claim — confirming Phase 5's unmodified `score_alert_against_incident` produces a nonzero `mitre_score` once real mapping data exists)
+- `ruff check`/`ruff format --check` pass clean. Full backend suite: 262 passed, 1 skipped (Phase 6's live-Ollama test), 0 failed.
+
+Verified against a live Postgres container (run from the host via `uv run`, `DATABASE_URL` pointed at the docker-compose Postgres's published `127.0.0.1:5432` — the same convention `app.ingestion.cli` already uses, since the backend container only bind-mounts `backend/app`, not the repo-root `data/` directory the loader and ingestion CLI both read from): `load_techniques` created all 6 rows, `run_mitre_mapping` linked every rule's `Detection` and created real `AlertMitreMapping(source='rule')` rows against a genuine detection-pipeline-produced `Alert`, and the same unmodified Phase 5 scoring function returned a nonzero `mitre_score` (`0.1`, i.e. the full `mitre_weight`) against that data — confirmed inside a rolled-back transaction, so nothing was left in the dev database.
+
+Same deliberate gap as Phase 3–7: no REST endpoint (Phase 9's job), so the frontend dashboard shows Phase 8 as a static yellow "Implemented," not a live-checked "Working."
+
+See [Documentation/PHASE-8.md](PHASE-8.md) for the full narrative and `TODO.md` Phase 8 for the itemized checklist.

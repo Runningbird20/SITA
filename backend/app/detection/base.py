@@ -77,6 +77,7 @@ class DetectionRule(ABC):
     default_severity: ClassVar[Severity]
     source_types: ClassVar[tuple[SourceType, ...]]
     default_config: ClassVar[dict] = {}
+    mitre_technique_ids: ClassVar[tuple[str, ...]] = ()
 
     @abstractmethod
     def evaluate(

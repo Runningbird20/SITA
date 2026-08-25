@@ -23,6 +23,7 @@ class ImpossibleTravelRule(DetectionRule):
     default_severity = Severity.HIGH
     source_types = (SourceType.AUTH,)
     default_config = {"max_plausible_speed_kmh": 900}
+    mitre_technique_ids = ("T1078",)
 
     def __init__(self, geo_resolver: GeoIPResolver | None = None):
         self._geo_resolver = geo_resolver or StaticGeoIPResolver()

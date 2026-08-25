@@ -20,6 +20,7 @@ class SuspiciousAuthPatternRule(DetectionRule):
     default_severity = Severity.MEDIUM
     source_types = (SourceType.AUTH,)
     default_config = {"off_hours_start": 0, "off_hours_end": 5}
+    mitre_technique_ids = ("T1078",)
 
     def evaluate(
         self, db: Session, events: Sequence[SecurityEvent], config: dict

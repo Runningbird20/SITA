@@ -117,7 +117,13 @@ export const PHASES: Phase[] = [
     id: 8,
     title: "MITRE ATT&CK Integration",
     goal: "Ground the system in a recognized security framework using local data.",
-    evaluate: notImplemented,
+    // Same shape as Phase 3-7: no REST endpoint (Phase 9's job), but
+    // genuinely complete — a curated local technique dataset, deterministic
+    // rule-to-technique mappings, and the incident-level technique display
+    // model, verified against both SQLite and a live Postgres container.
+    // Also switches on Phase 5's correlation MITRE-agreement signal, dormant
+    // since Phase 5 for lack of data. See Documentation/PHASE-8.md.
+    evaluate: staticImplemented,
   },
   {
     id: 9,

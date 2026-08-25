@@ -135,10 +135,14 @@ zero LLM network dependency by default), and Phase 7 (AI-powered triage —
 six LLM-assisted tasks per incident — summary, severity explanation, attack
 classification, investigation hypotheses, investigation steps, MITRE
 suggestions — each persisted as a labeled `AnalysisResult`, idempotent and
-re-runnable, never merged into deterministic fields). See
-[Documentation/](Documentation/) for the detailed report on each completed
-phase, and [TODO.md](TODO.md) for the full roadmap and what's next (Phase 8:
-MITRE ATT&CK Integration).
+re-runnable, never merged into deterministic fields), and Phase 8 (MITRE
+ATT&CK integration — a curated local technique dataset, deterministic
+rule-to-technique mappings declared on each detection rule, and the
+incident-level technique rollup that also switches on Phase 5's
+correlation MITRE-agreement signal, dormant until now for lack of data).
+See [Documentation/](Documentation/) for the detailed report on each
+completed phase, and [TODO.md](TODO.md) for the full roadmap and what's
+next (Phase 9: REST API).
 
 ## License
 

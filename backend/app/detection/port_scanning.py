@@ -19,6 +19,7 @@ class PortScanningRule(DetectionRule):
     default_severity = Severity.MEDIUM
     source_types = (SourceType.NETWORK,)
     default_config = {"distinct_port_threshold": 6, "window_seconds": 60}
+    mitre_technique_ids = ("T1046",)
 
     def evaluate(
         self, db: Session, events: Sequence[SecurityEvent], config: dict
