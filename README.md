@@ -128,12 +128,17 @@ models, Alembic migrations, Postgres/SQLite dual-dialect support), Phase 2
 endpoint, synthetic datasets), Phase 3 (detection engine — 7 deterministic
 rules), Phase 4 (IOC extraction — 6 regex extractors + structured fields,
 dedup), Phase 5 (incident correlation — weighted scoring across
-time/IOC/host/MITRE signals), and Phase 6 (local LLM integration — a
+time/IOC/host/MITRE signals), Phase 6 (local LLM integration — a
 swappable `LLMProvider` abstraction with `MockProvider`/`OllamaProvider`,
 structured-output validation, retry/confidence handling; the app runs with
-zero LLM network dependency by default). See [Documentation/](Documentation/)
-for the detailed report on each completed phase, and [TODO.md](TODO.md) for
-the full roadmap and what's next (Phase 7: AI-Powered Triage).
+zero LLM network dependency by default), and Phase 7 (AI-powered triage —
+six LLM-assisted tasks per incident — summary, severity explanation, attack
+classification, investigation hypotheses, investigation steps, MITRE
+suggestions — each persisted as a labeled `AnalysisResult`, idempotent and
+re-runnable, never merged into deterministic fields). See
+[Documentation/](Documentation/) for the detailed report on each completed
+phase, and [TODO.md](TODO.md) for the full roadmap and what's next (Phase 8:
+MITRE ATT&CK Integration).
 
 ## License
 

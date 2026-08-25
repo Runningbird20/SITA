@@ -10,9 +10,12 @@
   transition: border-color 0.15s ease;
 }
 
-.phase-row[data-status="implemented"],
-.phase-row[data-status="implemented_static"] {
+.phase-row[data-status="implemented"] {
   border-color: var(--color-green-border);
+}
+
+.phase-row[data-status="implemented_static"] {
+  border-color: var(--color-yellow-border);
 }
 
 .phase-row[data-status="broken"] {

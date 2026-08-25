@@ -17,10 +17,14 @@
   background: var(--color-gray);
 }
 
-.status-dot-wrap[data-status="implemented"] .status-dot,
-.status-dot-wrap[data-status="implemented_static"] .status-dot {
+.status-dot-wrap[data-status="implemented"] .status-dot {
   background: var(--color-green);
   box-shadow: 0 0 6px 0 var(--color-green-glow);
+}
+
+.status-dot-wrap[data-status="implemented_static"] .status-dot {
+  background: var(--color-yellow);
+  box-shadow: 0 0 6px 0 var(--color-yellow-glow);
 }
 
 .status-dot-wrap[data-status="broken"] .status-dot {
@@ -37,9 +41,12 @@
   color: var(--color-text-dim);
 }
 
-.status-dot-wrap[data-status="implemented"] .status-dot-label,
-.status-dot-wrap[data-status="implemented_static"] .status-dot-label {
+.status-dot-wrap[data-status="implemented"] .status-dot-label {
   color: var(--color-green);
+}
+
+.status-dot-wrap[data-status="implemented_static"] .status-dot-label {
+  color: var(--color-yellow);
 }
 
 .status-dot-wrap[data-status="broken"] .status-dot-label {

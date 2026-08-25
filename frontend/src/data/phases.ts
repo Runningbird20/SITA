@@ -13,7 +13,7 @@ export interface Phase {
    *    check fails or the backend is unreachable). Always prefer this.
    *  - `staticImplemented`: the phase is genuinely complete (its own
    *    PHASE-N.md report says so, with real tests), but has no
-   *    live-checkable HTTP surface yet — green "Implemented", asserted
+   *    live-checkable HTTP surface yet — yellow "Implemented", asserted
    *    rather than verified at runtime. Only for phases that are actually
    *    done, never for partial/in-progress work.
    *  - `notImplemented`: nothing built yet — gray.
@@ -104,7 +104,14 @@ export const PHASES: Phase[] = [
     id: 7,
     title: "AI-Powered Triage",
     goal: "LLM-assisted reasoning, always clearly labeled and layered on top of — never replacing — deterministic output.",
-    evaluate: notImplemented,
+    // Same shape as Phase 3-6: no REST endpoint (Phase 9's job), but
+    // genuinely complete — all six triage tasks (summary, severity
+    // explanation, attack classification, investigation hypotheses,
+    // investigation steps, MITRE suggestions) wired into a real,
+    // idempotent pipeline that persists AnalysisResult/Recommendation/
+    // AlertMitreMapping rows, verified against both SQLite and a live
+    // Postgres container. See Documentation/PHASE-7.md.
+    evaluate: staticImplemented,
   },
   {
     id: 8,
