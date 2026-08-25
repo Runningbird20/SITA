@@ -21,7 +21,12 @@ class Settings(BaseSettings):
 
     # API
     api_v1_prefix: str = "/api/v1"
-    cors_allow_origins: list[str] = ["http://localhost:5173"]
+    # Both hostnames for the same dev server: browsers treat localhost and
+    # 127.0.0.1 as distinct origins for CORS purposes, and which one a
+    # given browser/OS resolves "localhost" to isn't guaranteed (see the
+    # IPv6-vs-IPv4 note at the top of docker-compose.yml) — allow both so
+    # the dashboard doesn't silently fail depending on which URL was opened.
+    cors_allow_origins: list[str] = ["http://localhost:5173", "http://127.0.0.1:5173"]
 
     # Database — SQLAlchemy dialect determines Postgres vs SQLite; both are
     # supported through this single URL with no code branching elsewhere.
