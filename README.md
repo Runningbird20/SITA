@@ -9,9 +9,10 @@ deterministic pipeline.
 
 No paid APIs or API keys are required anywhere in this project.
 
-See [TODO.md](TODO.md) for the full engineering roadmap, [DEF.md](Documentation/DEF.md) for
-the core data model, and [docs/architecture.md](docs/architecture.md) for a
-system overview.
+See [TODO.md](TODO.md) for the full engineering roadmap, [Documentation/DEF.md](Documentation/DEF.md)
+for the field-level data model and contracts, [docs/architecture.md](docs/architecture.md)
+for a system overview, and [Documentation/](Documentation/) for a per-phase
+narrative of what was built and why (`PHASE-0.md`, `PHASE-1.md`, ...).
 
 ## Stack
 
@@ -39,6 +40,12 @@ docker compose up --build
 This starts Postgres, Ollama, the FastAPI backend (http://localhost:8000,
 docs at `/docs`), and the React frontend (http://localhost:5173).
 
+Apply database migrations (first run only, or after pulling new model changes):
+
+```bash
+docker compose exec backend uv run alembic upgrade head
+```
+
 Pull a local model for Ollama (first run only):
 
 ```bash
@@ -56,6 +63,7 @@ app runs with no LLM dependency at all.
 ```bash
 cd backend
 uv sync
+uv run alembic upgrade head
 uv run uvicorn app.main:app --reload
 ```
 
@@ -71,6 +79,23 @@ uv run pytest
 uv run ruff check .
 uv run ruff format .
 ```
+
+### Loading synthetic security event data
+
+A collection of realistic synthetic events (benign and attack-pattern, per
+source type) lives under [data/synthetic_events/](data/synthetic_events/),
+including a full multi-stage attack scenario
+(`scenarios/brute_force_to_lateral_movement/`) meant to be reconstructed as a
+single incident once correlation (Phase 5) exists. Load any file with the
+batch-import CLI:
+
+```bash
+cd backend
+uv run python -m app.ingestion.cli auth ../data/synthetic_events/auth/brute_force.jsonl
+```
+
+Or send events individually via `POST /api/v1/events/{source_type}` (accepts
+a single event object or a JSON array).
 
 ### Frontend
 
@@ -90,8 +115,12 @@ npm run build
 
 ## Status
 
-Phase 0 (project foundation) and Phase 1 data model definitions are in place.
-See [TODO.md](TODO.md) for what's next.
+Complete: Phase 0 (project foundation), Phase 1 (core data model — SQLAlchemy
+models, Alembic migrations, Postgres/SQLite dual-dialect support), and
+Phase 2 (event ingestion — 5 source-type adapters, batch CLI import, REST
+ingestion endpoint, synthetic datasets). See [Documentation/](Documentation/)
+for the detailed report on each completed phase, and [TODO.md](TODO.md) for
+the full roadmap and what's next (Phase 3: Detection Engine).
 
 ## License
 
