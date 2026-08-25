@@ -95,7 +95,7 @@ Nothing here required a schema change — `Entity`, `EventEntity`, `AlertEntity`
 | Weights chosen from a stated design principle, then verified — not reverse-engineered to force the scenario to pass | The near-miss test (`port_scan.jsonl`, same host as the scenario, 2.7 hours later, correctly stays separate) is what actually validates the weights are doing real work, not just fitting one example |
 | Aggregate incident *signatures* scored against, not pairwise alert comparison | Keeps the algorithm linear in alert count, not quadratic |
 | Closed/contained incidents excluded from automatic rejoining | An analyst's decision to close a case is a judgment call the pipeline shouldn't silently override |
-| No REST endpoint | Same Phase 9 deferral as Phase 3/4 — and the same honest dashboard consequence: static yellow "Implemented," not live-checked "Working" |
+| No REST endpoint | Same Phase 9 deferral as Phase 3/4 — and the same honest dashboard consequence: static "Implemented," not live-checked "Working," until Phase 9 landed. **Update:** live now, via `GET /api/v1/incidents` — see [PHASE-9.md](PHASE-9.md) |
 
 ## Verification performed
 

@@ -106,13 +106,15 @@ npm run dev
 ```
 
 Visit http://localhost:5173. Right now the frontend is a **build status
-dashboard**: one row per roadmap phase, each with a live status dot —
-gray (not implemented), green (checked against the running backend and
-working), or red (expected to work but the backend is unreachable or
-unhealthy). Phases 0–2 are checked live via `/healthz` and `/openapi.json`;
-phases 3–15 have no built surface yet, so they're shown as not implemented
-rather than guessed at. This gets replaced by the real SOC-style dashboard
-in Phase 10.
+dashboard**: one row per roadmap phase, each with a live status dot — gray
+(not implemented), green (checked against the running backend right now
+and working), yellow (genuinely complete per its own test suite, but with
+no live-checkable surface — currently only Phase 6), or red (expected to
+work but the backend is unreachable, unhealthy, or the check failed).
+Phases 0, 1, 2, 3, 4, 5, 7, 8, and 9 are all checked live via `/healthz`
+and `/openapi.json`; phases 10–15 have no built surface yet, so they're
+shown as not implemented rather than guessed at. This gets replaced by the
+real SOC-style dashboard in Phase 10.
 
 ```bash
 npm run lint
@@ -131,18 +133,23 @@ dedup), Phase 5 (incident correlation — weighted scoring across
 time/IOC/host/MITRE signals), Phase 6 (local LLM integration — a
 swappable `LLMProvider` abstraction with `MockProvider`/`OllamaProvider`,
 structured-output validation, retry/confidence handling; the app runs with
-zero LLM network dependency by default), and Phase 7 (AI-powered triage —
+zero LLM network dependency by default), Phase 7 (AI-powered triage —
 six LLM-assisted tasks per incident — summary, severity explanation, attack
 classification, investigation hypotheses, investigation steps, MITRE
 suggestions — each persisted as a labeled `AnalysisResult`, idempotent and
-re-runnable, never merged into deterministic fields), and Phase 8 (MITRE
+re-runnable, never merged into deterministic fields), Phase 8 (MITRE
 ATT&CK integration — a curated local technique dataset, deterministic
 rule-to-technique mappings declared on each detection rule, and the
 incident-level technique rollup that also switches on Phase 5's
-correlation MITRE-agreement signal, dormant until now for lack of data).
+correlation MITRE-agreement signal, dormant until now for lack of data),
+and Phase 9 (REST API — a paginated, filterable, sortable read surface
+over every domain object, a structured error envelope, auto-generated
+OpenAPI docs, and a pipeline-trigger endpoint for demos; also switches
+Phase 3/4/5/7/8's dashboard entries from static "Implemented" to
+live-checked "Working," a promise each of those phases' own docs made).
 See [Documentation/](Documentation/) for the detailed report on each
 completed phase, and [TODO.md](TODO.md) for the full roadmap and what's
-next (Phase 9: REST API).
+next (Phase 10: Frontend).
 
 ## License
 
