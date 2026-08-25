@@ -794,3 +794,134 @@ Same deliberate gap as Phase 3: no REST endpoint (Phase 9's job), so the fronten
 LLM-assisted extraction (`[STRETCH]` in `TODO.md`) was not implemented in this pass — see `TODO.md` Phase 4 for what remains optional.
 
 See [Documentation/PHASE-4.md](PHASE-4.md) for the full narrative and `TODO.md` Phase 4 for the itemized checklist.
+
+---
+
+# Phase 5: Incident Correlation
+
+## Scope
+
+Group `Alert` rows (Phase 3) into `Incident` rows (Phase 1's schema), using the `IOC` links Phase 4 built plus a new `Entity` population step this phase owns. Deterministic, weighted scoring — no LLM. This section documents the strategy *before* implementation, per `TODO.md`'s explicit instruction to design and document the correlation strategy before writing correlation code.
+
+## The real problem: hostnames and IPs don't literally match
+
+Before any scoring design, a genuine obstacle has to be named: `auth` and `endpoint` events identify a host by hostname (`dest_host`, `host` — e.g. `"web01.internal"`), while `network` and `dns` events identify it by IP (`src_ip`, `dst_ip` — e.g. `"10.0.0.5"`). Nothing in the schema or in Phase 2–4's work ties these two representations of the *same physical host* together. This isn't a corner case — it's the central problem the Phase 2 scenario (`brute_force_to_lateral_movement`) was explicitly built to pose: its `ssh_brute_force` alert (auth, targets `web01.internal`) and its `port_scanning` alert (network, sourced from `10.0.0.5`) share no literal field in common at all, even though they're the same attacker pivoting from the same compromised host. A real SOC platform resolves this via a CMDB or asset inventory (hostname ↔ IP registry, DHCP lease history, etc.) — infrastructure this project doesn't have and isn't adding as a required dependency.
+
+The resolution follows the same pattern Phase 3 used for `impossible_travel`'s GeoIP dependency: a small, explicitly-labeled **stub**, not a real capability.
+
+```python
+# Hostname -> canonical internal IP, established by this project's own
+# scenario dataset design (see data/synthetic_events/scenarios/
+# brute_force_to_lateral_movement/README.md). A stand-in for what a real
+# CMDB / asset inventory would provide — not a general hostname-resolution
+# capability. Only covers hosts this project's own scenario deliberately
+# ties together; unknown hosts/IPs simply don't get bridged.
+KNOWN_HOST_ALIASES: dict[str, str] = {
+    "web01.internal": "10.0.0.5",
+    "ws-07.internal": "10.0.0.7",
+}
+```
+
+During `Entity` population (below), a `network`/`dns` event's IP is checked against this map's *values*; if it matches, the event links to the **same** `Entity(type=host)` row as the canonical hostname, not a separate IP-identified entity. This is the mechanism — and the only mechanism — that lets correlation bridge the scenario's `auth`/`endpoint` alerts to its `network` alert. See `[[host-identity-stub]]` in `TODO.md`'s Architecture Decisions for the honest limitation this implies.
+
+## Entity population (new in this phase)
+
+Phase 1 designed `Entity` specifically to "enable correlation," but no phase through Phase 4 populated it — deliberately deferred, per Phase 3 and Phase 4's own "what this phase does not include" notes. Phase 5 is where that debt comes due, but only partially: **only `entity_type="host"` is populated**, and from `SecurityEvent.source_host` (the top-level column every ingestion adapter already populates from the raw record's `host` field, universally — not from a `normalized` field, which not every source type has: `endpoint`'s `normalized` has no host key at all, only `pid`/`command_line`/etc.) rather than reaching into per-source `normalized` fields inconsistently. `ip`, `user`, and `domain` entity types are *not* populated here — Phase 4's `IOC` table already covers those (`ipv4`/`ipv6`/`username`/`domain`), and duplicating that as `Entity` rows too would be redundant infrastructure with no new correlating power. This is why `TODO.md`'s "shared IP / shared user / shared domain" signals collapse into one mechanism below (shared IOC) while "shared host" needs this dedicated, new population step.
+
+Two cases:
+
+- **`auth`, `endpoint`, `web`, `dns`** — one host entity per event, from `source_host` directly (canonicalized through the alias map, in case a future dataset ever names a host by an aliased IP in this field — it doesn't currently, but the canonicalization is applied uniformly rather than only where it happens to matter today). Linked via `EventEntity` with `role=source`.
+- **`network`** — a connection inherently involves *two* hosts, not one, so `src_ip` and `dst_ip` are each checked (via the alias map, then independently): only **internal** addresses become host entities (`role=source` / `role=target` respectively) — a public address here is an attacker's infrastructure, already covered as an `ipv4`/`ipv6` IOC by Phase 4, and treating it as "our host" would blur the `Entity`/`IOC` distinction the schema deliberately keeps separate. "Internal" here means RFC 1918 (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`) / RFC 4193 ULA specifically — **deliberately narrower than Python's `ipaddress.is_private`**, which also flags the RFC 5737 documentation ranges (`203.0.113.0/24`, `198.51.100.0/24`, `192.0.2.0/24`) as private. This project uses those exact documentation ranges throughout its synthetic datasets to represent *external attacker* addresses (the same RFC-reserved-range convention as Phase 4's `.example` domains) — trusting `.is_private` directly would have wrongly turned attacker infrastructure into "our" host entities, caught the same way Phase 4's file-extension/`.example` issues were: by inspecting real extraction output against real data, not by assumption. An aliased internal IP resolves to its canonical hostname's `Entity` row; an unaliased one (e.g. `10.0.0.20`, no known hostname) still gets its own `Entity(type=host, identifier="10.0.0.20")` row — a real, correlatable asset even without a name for it.
+
+`Entity` rows are deduplicated by `(entity_type, identifier)`, `identifier` = the canonical hostname (or raw private IP, if unaliased). After an alert's incident membership is decided, its matched events' host entities roll up onto `AlertEntity` the same way Phase 4 rolls IOCs onto `alert_ioc`.
+
+## Correlation signals
+
+| Signal | Source | Generalizes |
+|---|---|---|
+| **Time proximity** | `Alert.first_event_at`/`last_event_at` vs. the candidate incident's activity range | — |
+| **Shared IOC** | `Alert.iocs` (Phase 4) — any `IOC.id` in common with the incident's aggregate IOC set | shared IP, shared user, shared domain, plus shared URL/hash/email as a bonus — all are just `IOCType` values, so one mechanism covers all of them |
+| **Shared host** | `Alert`'s matched events' host `Entity` rows (this phase, including the alias bridge above) vs. the incident's aggregate host set | shared host |
+| **Shared MITRE technique** | `Alert.mitre_mappings` vs. the incident's aggregate technique set | — |
+
+The MITRE signal is real, tested code — but **inert in practice right now**: no `Detection` row carries a MITRE mapping until Phase 8 populates `detection_mitre_mapping`, so every alert's technique set is currently empty and this signal always contributes `0`. Built now rather than bolted on later, exactly like Phase 3's MITRE-mapping association objects were built in Phase 1 before Phase 3 could use them.
+
+## Scoring formula
+
+```
+time_score   = time_weight   * max(0, 1 - gap_seconds / time_decay_seconds)   # 0 if gap exceeds decay window
+ioc_score    = ioc_weight    * min(1, shared_ioc_count / ioc_saturation)
+host_score   = host_weight   * min(1, shared_host_count / host_saturation)
+mitre_score  = mitre_weight  * min(1, shared_technique_count / mitre_saturation)
+
+score = time_score + ioc_score + host_score + mitre_score
+join if score >= correlation_threshold
+```
+
+| Constant | Default | Reasoning |
+|---|---|---|
+| `time_weight` | `0.2` | Necessary supporting signal, never sufficient alone — pure time adjacency between two coincidentally-nearby-but-unrelated alerts shouldn't merge them |
+| `time_decay_seconds` | `1800` (30 min) | Generous enough to span a realistic multi-stage attack's pacing, tight enough to decay to ~0 well before unrelated daily activity |
+| `ioc_weight` | `0.4` | The strongest single signal — a literally-shared indicator (same attacker IP, same compromised account) is hard to explain as coincidence |
+| `ioc_saturation` | `2` | Two or more shared IOCs already fully justifies the max score; no need to keep climbing |
+| `host_weight` | `0.3` | A shared host is strong evidence (same asset touched twice) but weighted below shared IOC since Phase 5's own alias-bridging makes it partly inferred rather than purely literal |
+| `host_saturation` | `1` | A single shared host is already enough — hosts don't have graded "more shared" the way IOC counts do |
+| `mitre_weight` | `0.1` | Smallest weight — currently always `0` in practice (see above), reserved for Phase 8 |
+| `mitre_saturation` | `1` | — |
+| `correlation_threshold` | `0.4` | Chosen so that shared-IOC alone (`0.4`) or shared-host-plus-any-time-proximity (`0.3 + ≥0.1`) crosses it, but time proximity alone (`≤0.2`) never does |
+
+These are module-level constants (`CorrelationConfig`), not a per-row DB config the way `Detection.config` is — there's one correlation algorithm, not several interchangeable rules, so a dataclass with defaults is proportionate; no schema table needed for it.
+
+## Grouping algorithm
+
+Alerts are processed in **chronological order** (`first_event_at` ascending) — a forward-only sweep, not full pairwise graph clustering. For each alert not yet assigned to an incident:
+
+1. Query candidate incidents: `status IN (open, investigating)` (an incident an analyst has marked `contained`/`closed` is not silently reopened by new correlated activity — see rationale below) and `last_activity_at >= alert.first_event_at - window_seconds` (a cheap, indexed range filter; `window_seconds` is set generously above `time_decay_seconds` so it never excludes a candidate the scoring formula would still consider).
+2. Score the alert against each candidate incident's **aggregate signature** (union of all its constituent alerts' IOCs, host entities, and MITRE techniques, plus its activity time range) — not against every individual alert already in the incident. This keeps the algorithm's cost linear in the number of alerts, not quadratic.
+3. Join the highest-scoring candidate if its score `>= correlation_threshold`; otherwise create a new `Incident` containing just this alert.
+4. Update the incident's rollup fields (below) and its `correlation_method` JSON with exactly which signals justified this alert's membership.
+
+**Why closed/contained incidents are excluded from rejoining**: an analyst closing an incident is a judgment call the pipeline shouldn't silently override. A new alert that would otherwise match a closed incident starts a fresh one (or joins a different open one) instead — the analyst can manually link them later if that's actually the right call, but the automated pipeline never reopens a decision a human already made.
+
+## Incident rollup
+
+- **`severity`**: the maximum severity among constituent alerts (ordinal: `low < medium < high < critical`).
+- **`status`**: `open` on creation; never changed by the pipeline afterward (see above).
+- **`first_activity_at` / `last_activity_at`**: min/max of constituent alerts' `first_event_at`/`last_event_at`.
+- **`title`**: deterministically templated, per Phase 1's own description of this field. One alert: `"{detection.name} — {primary host or IP}"`. Multiple alerts: the distinct detection names, in chronological order of first appearance, joined by `" → "` (e.g. `"SSH Brute Force → Port Scanning → Suspicious PowerShell Activity"` — deliberately the same shape as the scenario's own narrative in its README, since that's exactly what a correctly-functioning correlation engine should produce for it).
+- **`correlation_method`**: `{"alerts": {"<alert_id>": {"score": ..., "signals": {"time_score": ..., "shared_iocs": [...], "shared_hosts": [...], "shared_techniques": [...]}}}, "config": {snapshot of the weights used}}` — a full, inspectable justification for every alert's membership, not just a final score.
+
+## Pipeline & CLI
+
+Same shape as Phase 3/4: `run_correlation(db, since=None) -> CorrelationRunReport`, no REST endpoint (Phase 9's job), triggered via `uv run python -m app.correlation.cli [--since ...]`. Recommended order: ingest → detect → extract IOCs → correlate, so the IOC and host signals are fully populated before scoring runs; like Phase 4, re-running is safe (host/IOC population is idempotent) but ordering affects completeness of the *first* pass.
+
+```python
+class CorrelationRunReport(BaseModel):
+    since: datetime | None
+    alerts_processed: int
+    incidents_created: int
+    incidents_joined: int
+    host_entities_created: int
+    host_links_created: int
+```
+
+## Phase 5 Status: implemented
+
+Everything above is implemented and verified, matching the specification exactly (including one refinement made while implementing — see below):
+
+- Host identity bridge: `backend/app/correlation/host_identity.py` (`KNOWN_HOST_ALIASES`)
+- Host extraction: `backend/app/correlation/host_extraction.py`
+- Entity upsert/linking: `backend/app/correlation/entity_service.py` (`upsert_host_entity`, `link_event`, `link_alert`)
+- Signatures, config, scoring: `backend/app/correlation/base.py`, `scoring.py`
+- Title generation: `backend/app/correlation/title.py`
+- Pipeline & CLI: `backend/app/correlation/pipeline.py` (`run_correlation`), `cli.py`
+- `CorrelationRunReport` schema: `backend/app/schemas/correlation_run.py`
+- Tests: `backend/tests/unit/test_correlation_{scoring,host_extraction,entity_service,title,pipeline,cli}.py` and `backend/tests/integration/test_correlation_against_datasets.py` (both DoD halves proven against the real scenario dataset, plus a regression test for the refinement below)
+
+**One refinement made during implementation**: the `network` host-extraction filter was specified as "private/internal addresses only," originally implemented via Python's `ipaddress.is_private`. Real verification against real data caught that `is_private` also flags the RFC 5737 documentation ranges (`203.0.113.0/24`, `198.51.100.0/24`, `192.0.2.0/24`) this project's own datasets deliberately use to represent *external attacker* addresses (the same convention as Phase 4's `.example` domains) — which would have turned attacker infrastructure into "our" host entities. Fixed with a precise RFC 1918 / RFC 4193 ULA check instead of the broader `is_private`; documented above and covered by a dedicated regression test (`test_port_scan_fixture_attacker_ip_is_not_treated_as_a_host_entity`).
+
+Verified against both SQLite and a live Postgres container — the scenario's 4 alerts (`ssh_brute_force`, `suspicious_auth_pattern`, `port_scanning`, `suspicious_powershell`) correctly land in one incident titled `"SSH Brute Force → Suspicious Authentication Pattern → Port Scanning → Suspicious PowerShell Activity"`, while the unrelated standalone `auth/brute_force.jsonl` alert and the unrelated standalone `network/port_scan.jsonl` alert (same target host as the scenario, but ~2.7 hours later — a genuine near-miss, not a trivial case) both correctly form their own separate incidents.
+
+Same deliberate gap as Phase 3/4: no REST endpoint (Phase 9's job), so the frontend dashboard shows Phase 5 as a static green "Implemented," not a live-checked "Working."
+
+See [Documentation/PHASE-5.md](PHASE-5.md) for the full narrative and `TODO.md` Phase 5 for the itemized checklist.

@@ -85,6 +85,22 @@ recommended after `app.detection.cli` so its second pass can roll matched
 alerts' IOCs up onto `alert_ioc` — no REST endpoint yet, same Phase-9
 deferral as detection.
 
+## Incident Correlation
+
+`backend/app/correlation/` groups `Alert` rows into `Incident` rows using
+deterministic weighted scoring (time proximity, shared IOCs, shared hosts,
+shared MITRE techniques — the last currently inert until Phase 8), not
+graph clustering. The full formula, weights, and grouping algorithm are
+defined in
+[DEF.md § Phase 5](../Documentation/DEF.md#phase-5-incident-correlation)
+rather than duplicated here. Shared-host correlation needed new
+infrastructure this phase: `Entity` population (deferred by every prior
+phase) plus a small, explicitly-labeled hostname↔IP identity bridge
+(`host_identity.py`) — the same kind of deliberate stub as Phase 3's GeoIP
+resolver, standing in for a real CMDB. Run on-demand via
+`uv run python -m app.correlation.cli`, recommended after `app.ioc.cli` —
+no REST endpoint yet, same Phase-9 deferral as detection and IOC extraction.
+
 ## Data Layer
 
 SQLAlchemy models sit behind a single `DATABASE_URL`; the dialect (Postgres in

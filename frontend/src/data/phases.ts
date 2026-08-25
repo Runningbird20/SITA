@@ -83,7 +83,11 @@ export const PHASES: Phase[] = [
     id: 5,
     title: "Incident Correlation",
     goal: "Group related alerts into incidents using explainable, deterministic correlation logic.",
-    evaluate: notImplemented,
+    // Same shape as Phase 3/4: no REST endpoint yet (deferred to Phase 9),
+    // but genuinely complete — weighted scoring across time/IOC/host/MITRE
+    // signals, verified to reconstruct the Phase 2 scenario as one incident
+    // against both SQLite and Postgres. See Documentation/PHASE-5.md.
+    evaluate: staticImplemented,
   },
   {
     id: 6,

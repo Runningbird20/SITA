@@ -1,20 +1,12 @@
-from datetime import UTC, datetime
+from datetime import datetime
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.time import as_aware_utc
 from app.ioc.base import ExtractedIOC
 from app.models.event import SecurityEvent
 from app.models.ioc import IOC
-
-
-def _aware(value: datetime) -> datetime:
-    """SQLite doesn't preserve tzinfo through a flush/refresh round-trip
-    (unlike Postgres's TIMESTAMPTZ) — a naive value read back is always UTC
-    by this project's convention, so treat it as such rather than let a
-    naive/aware comparison raise.
-    """
-    return value if value.tzinfo is not None else value.replace(tzinfo=UTC)
 
 
 def upsert_ioc(db: Session, candidate: ExtractedIOC, seen_at: datetime) -> tuple[IOC, bool]:
@@ -37,9 +29,9 @@ def upsert_ioc(db: Session, candidate: ExtractedIOC, seen_at: datetime) -> tuple
         db.flush()
         return ioc, True
 
-    if _aware(seen_at) < _aware(existing.first_seen):
+    if as_aware_utc(seen_at) < as_aware_utc(existing.first_seen):
         existing.first_seen = seen_at
-    if _aware(seen_at) > _aware(existing.last_seen):
+    if as_aware_utc(seen_at) > as_aware_utc(existing.last_seen):
         existing.last_seen = seen_at
     if candidate.confidence > existing.confidence:
         existing.confidence = candidate.confidence
