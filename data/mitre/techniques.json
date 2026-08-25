@@ -1,0 +1,41 @@
+{
+  "dataset_version": "curated-2026-08",
+  "techniques": [
+    {
+      "technique_id": "T1110",
+      "name": "Brute Force",
+      "tactic": "credential-access",
+      "description": "Adversaries may use brute force techniques to gain access to accounts when passwords are unknown or when password hashes are obtained. Without knowledge of the password for an account or set of accounts, an adversary may systematically guess the password using a repetitive or iterative mechanism, sometimes trying every possible combination or a curated list of likely candidates."
+    },
+    {
+      "technique_id": "T1110.001",
+      "name": "Brute Force: Password Guessing",
+      "tactic": "credential-access",
+      "description": "Adversaries with no prior knowledge of legitimate credentials on a system or in an environment may guess passwords to attempt access to accounts. Without knowledge of the password for an account, an adversary may opt to systematically guess the password using a repetitive or iterative mechanism against one or a small number of accounts."
+    },
+    {
+      "technique_id": "T1110.003",
+      "name": "Brute Force: Password Spraying",
+      "tactic": "credential-access",
+      "description": "Adversaries may use a single or small list of commonly used passwords against many different accounts to attempt to acquire valid account credentials. Password spraying uses one password (e.g. 'Password01'), or a small list of commonly used passwords, against many different accounts on a network, avoiding account lockouts that would normally occur when brute forcing a single account with many passwords."
+    },
+    {
+      "technique_id": "T1078",
+      "name": "Valid Accounts",
+      "tactic": "initial-access",
+      "description": "Adversaries may obtain and abuse credentials of existing accounts as a means of gaining Initial Access, Persistence, Privilege Escalation, or Defense Evasion. Compromised credentials may be used to bypass access controls placed on various resources on systems within a network and may even be used for persistent access to remote systems. Anomalous account usage patterns — logins from unfamiliar sources, off-hours activity, or activity inconsistent with a location a user was recently active from — are common signals that a valid account's credentials have been compromised."
+    },
+    {
+      "technique_id": "T1046",
+      "name": "Network Service Discovery",
+      "tactic": "discovery",
+      "description": "Adversaries may attempt to get a listing of services running on remote hosts and local network infrastructure devices, including those that may be vulnerable to remote software exploitation. Common methods include port and/or vulnerability scans using tools that are brought onto a system, or native network scanning tools available on a compromised host."
+    },
+    {
+      "technique_id": "T1059.001",
+      "name": "Command and Scripting Interpreter: PowerShell",
+      "tactic": "execution",
+      "description": "Adversaries may abuse PowerShell commands and scripts for execution. PowerShell is a powerful interactive command-line interface and scripting environment included in the Windows operating system. Common indicators of malicious use include base64-encoded commands, execution-policy bypass flags, hidden windows, and download-and-execute (cradle) patterns that fetch and run remote content in memory."
+    }
+  ]
+}

@@ -24,6 +24,7 @@ class PasswordSprayingRule(DetectionRule):
         "max_attempts_per_username": 3,
         "window_seconds": 600,
     }
+    mitre_technique_ids = ("T1110.003",)
 
     def evaluate(
         self, db: Session, events: Sequence[SecurityEvent], config: dict

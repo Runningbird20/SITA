@@ -31,6 +31,7 @@ class SuspiciousPowerShellRule(DetectionRule):
     default_severity = Severity.HIGH
     source_types = (SourceType.ENDPOINT,)
     default_config: dict = {}
+    mitre_technique_ids = ("T1059.001",)
 
     def evaluate(
         self, db: Session, events: Sequence[SecurityEvent], config: dict

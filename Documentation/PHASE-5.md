@@ -33,7 +33,7 @@ Host extraction (`host_extraction.py`) had one subtlety worth calling out precis
 
 ### Signals unify into two mechanisms, not five
 
-`TODO.md` lists five correlation signals beyond time (shared IP, user, host, domain, IOC) and MITRE technique. In practice, four of them — IP, user, domain, and the general "shared IOC" — are the same mechanism, because `ipv4`/`ipv6`/`username`/`domain` are just `IOCType` values: any two alerts sharing an `IOC.id` (via `Alert.iocs`, already populated by Phase 4) get credit, regardless of which specific type the shared indicator happens to be. Only "shared host" needed genuinely new machinery (the `Entity` population above). MITRE technique correlation is real, tested code (`Alert.mitre_mappings` intersection) — but **inert in practice right now**: no `Detection` row carries a technique mapping until Phase 8 populates `detection_mitre_mapping`, so this signal always contributes `0` today. Built now, exactly like Phase 1 built the `alert_mitre_mapping` association object two phases before anything could populate it.
+`TODO.md` lists five correlation signals beyond time (shared IP, user, host, domain, IOC) and MITRE technique. In practice, four of them — IP, user, domain, and the general "shared IOC" — are the same mechanism, because `ipv4`/`ipv6`/`username`/`domain` are just `IOCType` values: any two alerts sharing an `IOC.id` (via `Alert.iocs`, already populated by Phase 4) get credit, regardless of which specific type the shared indicator happens to be. Only "shared host" needed genuinely new machinery (the `Entity` population above). MITRE technique correlation is real, tested code (`Alert.mitre_mappings` intersection) — at the time this phase was written it was **inert in practice**: no `Detection` row carried a technique mapping until Phase 8 populated `detection_mitre_mapping`, so this signal always contributed `0`. Built now, exactly like Phase 1 built the `alert_mitre_mapping` association object two phases before anything could populate it. **Update (Phase 8):** no longer inert — see [PHASE-8.md](PHASE-8.md).
 
 ### Weighted scoring, not graph clustering
 
@@ -95,7 +95,7 @@ Nothing here required a schema change — `Entity`, `EventEntity`, `AlertEntity`
 | Weights chosen from a stated design principle, then verified — not reverse-engineered to force the scenario to pass | The near-miss test (`port_scan.jsonl`, same host as the scenario, 2.7 hours later, correctly stays separate) is what actually validates the weights are doing real work, not just fitting one example |
 | Aggregate incident *signatures* scored against, not pairwise alert comparison | Keeps the algorithm linear in alert count, not quadratic |
 | Closed/contained incidents excluded from automatic rejoining | An analyst's decision to close a case is a judgment call the pipeline shouldn't silently override |
-| No REST endpoint | Same Phase 9 deferral as Phase 3/4 — and the same honest dashboard consequence: static green "Implemented," not live-checked "Working" |
+| No REST endpoint | Same Phase 9 deferral as Phase 3/4 — and the same honest dashboard consequence: static yellow "Implemented," not live-checked "Working" |
 
 ## Verification performed
 
