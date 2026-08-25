@@ -271,17 +271,17 @@ erDiagram
 
 ---
 
-## Status: what this document does and does not complete
+## Status: implemented
 
-This document satisfies the **definition** tasks in Phase 1 — field-level schemas, relationships, enums, and the deterministic/AI-provenance convention are fully specified and ready to implement against.
+Phase 1 is complete. Everything defined above is implemented and verified:
 
-It does **not** implement them. Still required, as separate Phase 1 tasks, before Phase 2 can build on real tables:
+- SQLAlchemy ORM models: `backend/app/models/` (one module per entity, plus `associations.py` for junction tables/objects, `enums.py`, `base.py` mixins)
+- First Alembic migration: `backend/alembic/versions/6224f8f082fb_initial_schema.py` — applied and verified against **both** SQLite and a real Postgres container, with `alembic check` confirming no drift from the models
+- Postgres/SQLite data-layer abstraction: `backend/app/db/session.py` + `backend/app/db/types.py` (the `JSONVariant` type — JSONB on Postgres, JSON elsewhere)
+- Pydantic read/response schemas: `backend/app/schemas/` (one `*Read` schema per entity). Create/Update variants are deferred to Phase 9, when actual endpoints exist to consume them
+- DB-level indexes: declared on the models per the index lists above, confirmed present in the migration and (for Postgres) via direct inspection
+- Unit tests: `backend/tests/unit/test_models.py` and `test_schemas.py` — unique constraints, NOT NULL, FK integrity, and both check constraints (`AnalysisResult` single-scope, `Recommendation` LLM-provenance) all verified
 
-- SQLAlchemy ORM models matching this document
-- The first Alembic migration
-- The Postgres/SQLite data-layer engine abstraction
-- Pydantic request/response schemas
-- DB-level indexes as code (listed above per-table, but not yet applied)
-- Unit tests validating constraints
+One naming note: the `Entity.metadata` field described above is implemented as `Entity.entity_metadata` in code — `metadata` is a reserved attribute name on SQLAlchemy's declarative `Base` (it's the `MetaData` object), so it can't be reused as a column attribute.
 
-See `TODO.md` Phase 1 for the checked/unchecked status of each.
+See `TODO.md` Phase 1 for the itemized checklist.
