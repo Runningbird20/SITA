@@ -1,0 +1,2 @@
+{"timestamp": "2026-01-17T09:00:00Z", "host": "fw01.internal", "src_ip": "2001:db8:1234:5678::10", "src_port": 51500, "dst_ip": "2001:db8:1234:5678::20", "dst_port": 443, "protocol": "tcp", "bytes_sent": 1800, "bytes_received": 9600}
+{"timestamp": "2026-01-17T09:02:15Z", "host": "fw01.internal", "src_ip": "2001:db8:1234:5678::10", "src_port": 51501, "dst_ip": "2606:4700:4700::1111", "dst_port": 443, "protocol": "tcp", "bytes_sent": 900, "bytes_received": 4200}
