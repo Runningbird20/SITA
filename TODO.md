@@ -65,26 +65,28 @@ SITA/
 
 **Tasks**
 
-- [ ] Create `backend/` and `frontend/` top-level structure per layout above
-- [ ] Initialize backend with `uv` (`pyproject.toml`, lockfile, `uv.lock`)
-- [ ] Add FastAPI + Uvicorn as base backend deps; confirm `uvicorn app.main:app` boots an empty app
-- [ ] Configure Ruff (lint + format) with a project `ruff.toml` / `pyproject.toml` section
-- [ ] Initialize frontend with Vite + React + TypeScript template
-- [ ] Configure ESLint + Prettier for the frontend
-- [ ] Add `docker-compose.yml` with services: `backend`, `frontend`, `postgres`, `ollama` (no service requires a paid API key)
-- [ ] Write backend `Dockerfile` (multi-stage: deps install via `uv`, then runtime image)
-- [ ] Write frontend `Dockerfile` (build stage + static serve, or Vite dev server for local)
-- [ ] Design configuration management: `backend/app/core/config.py` using `pydantic-settings`, reading from `.env`
-- [ ] Write `.env.example` documenting every configurable variable (DB URL, Ollama host/model, log level, etc.)
-- [ ] Set up structured logging (JSON logs, configurable level) as a reusable `core/logging.py` — used from Phase 0 onward so every later phase logs consistently
-- [ ] `[HIGH VALUE]` Set up GitHub Actions CI: lint (Ruff + ESLint), backend tests (pytest), frontend build, on every PR
-- [ ] Add pre-commit hooks (Ruff, ESLint) `[STRETCH]`
-- [ ] Write root `README.md` covering project purpose, architecture diagram, and quick-start (expand in Phase 15)
-- [ ] Add `docs/architecture.md` stub to be filled in as phases land
-- [ ] Add `LICENSE` (MIT or similar) `[STRETCH]`
-- [ ] Add `.gitignore` covering Python, Node, Docker, env files, IDE artifacts
+- [x] Create `backend/` and `frontend/` top-level structure per layout above
+- [x] Initialize backend with `uv` (`pyproject.toml`, lockfile, `uv.lock`)
+- [x] Add FastAPI + Uvicorn as base backend deps; confirm `uvicorn app.main:app` boots an empty app — verified locally via `uv run uvicorn app.main:app` and inside the Docker container; `/healthz` and `/docs` both respond
+- [x] Configure Ruff (lint + format) with a project `ruff.toml` / `pyproject.toml` section — `uv run ruff check .` and `uv run ruff format --check .` both pass
+- [x] Initialize frontend with Vite + React + TypeScript template
+- [x] Configure ESLint + Prettier for the frontend — swapped out the template's default `oxlint` for ESLint (flat config, typescript-eslint, react-hooks/react-refresh plugins) + Prettier, per the project's stated tooling direction; `npm run lint` / `npm run format:check` pass
+- [x] Add `docker-compose.yml` with services: `backend`, `frontend`, `postgres`, `ollama` (no service requires a paid API key) — all four services verified to build/start; `ollama` confirmed to pull and boot (no model pulled yet — that's a Phase 15 quick-start step, and a multi-GB download)
+- [x] Write backend `Dockerfile` (deps installed via `uv` in a cached layer before source is copied, then a non-root runtime user) — note: implemented as a single `FROM` stage with layered `uv sync` calls for build-cache efficiency rather than multiple `FROM ... AS` stages; revisit as a literal multi-stage build if a smaller final image size becomes a priority
+- [x] Write frontend `Dockerfile` (build stage + static serve, or Vite dev server for local) — three targets: `dev` (Vite dev server, used by compose), `build`, and `production` (nginx static serve)
+- [x] Design configuration management: `backend/app/core/config.py` using `pydantic-settings`, reading from `.env`
+- [x] Write `.env.example` documenting every configurable variable (DB URL, Ollama host/model, log level, etc.)
+- [x] Set up structured logging (JSON logs, configurable level) as a reusable `core/logging.py` — used from Phase 0 onward so every later phase logs consistently
+- [x] `[HIGH VALUE]` Set up GitHub Actions CI: lint (Ruff + ESLint), backend tests (pytest), frontend build, on every PR — `.github/workflows/ci.yml`; not yet run on an actual push/PR since this hasn't been pushed to GitHub
+- [x] Add pre-commit hooks (Ruff, ESLint) `[STRETCH]` — `.pre-commit-config.yaml` added; not yet installed via `pre-commit install` (requires the `pre-commit` tool, not currently installed in this environment)
+- [x] Write root `README.md` covering project purpose, architecture diagram, and quick-start (expand in Phase 15)
+- [x] Add `docs/architecture.md` stub to be filled in as phases land
+- [x] Add `LICENSE` (MIT or similar) `[STRETCH]`
+- [x] Add `.gitignore` covering Python, Node, Docker, env files, IDE artifacts — verified `.venv/`, `node_modules/`, and `.env` are actually excluded from `git status`
 
 **Definition of Done:** `docker compose up` brings up an empty FastAPI backend (health check responds), an empty React app, Postgres, and Ollama. CI runs lint + a trivial passing test on push. `.env.example` fully documents configuration.
+
+**Verified so far:** `docker compose build` succeeds for both images; `postgres` + `backend` + `frontend` were brought up together and confirmed working end-to-end (`/healthz` returns `{"status":"ok","database":"ok"}` against the *real* Postgres container, not just SQLite; frontend serves the Vite dev app on `:5173`). `ollama` was brought up independently and confirmed responding (`http://localhost:11434` → `Ollama is running`) — no model pulled yet. Not yet verified: an actual CI run on GitHub (no remote push yet), `pre-commit install` (tool not installed locally), and all four services running together simultaneously in one `docker compose up` (verified in two groups instead, to keep the Ollama image pull — ~2.6GB — off the critical path).
 
 ---
 
@@ -94,17 +96,17 @@ SITA/
 
 **Tasks**
 
-- [ ] Define `SecurityEvent` (normalized, source-agnostic single observation: timestamp, source type, raw payload, normalized fields, entity refs)
-- [ ] Define `Alert` (output of the detection engine: rule/source that fired, severity, related events, IOCs, MITRE technique refs, status)
-- [ ] Define `Incident` (correlated group of alerts: title, status, severity, timeline, related entities, related AI analyses)
-- [ ] Define `IOC` (type, value, first_seen, last_seen, confidence, validation status, source alerts/events)
-- [ ] Define `Entity` (host, user, IP, or other actor referenced across events — enables correlation)
-- [ ] Define `Detection` (a deterministic rule definition + its firing metadata, distinct from the `Alert` instance it produces)
-- [ ] Define `MITRETechnique` (technique ID, name, tactic, description — locally stored subset of ATT&CK)
-- [ ] Define `Recommendation` (next-step suggestion: text, source [rule-based vs LLM], related incident/alert, priority)
-- [ ] Define `AnalysisResult` (LLM output envelope: model/provider used, prompt version, raw + parsed structured output, confidence, timestamp, latency) — see [[llm-provider-abstraction]] in Phase 6
-- [ ] `[HIGH VALUE]` Explicitly tag every field/table as `deterministic` or `ai_generated` at the schema level (e.g., separate tables/columns, never commingled) so provenance is enforced by the data model, not just convention
-- [ ] Design relational schema (SQLAlchemy models) capturing the above and their relationships (Event ↔ Alert ↔ Incident ↔ IOC ↔ Entity ↔ MITRETechnique ↔ Recommendation ↔ AnalysisResult)
+- [x] Define `SecurityEvent` (normalized, source-agnostic single observation: timestamp, source type, raw payload, normalized fields, entity refs) — see [DEF.md](DEF.md#1-securityevent)
+- [x] Define `Alert` (output of the detection engine: rule/source that fired, severity, related events, IOCs, MITRE technique refs, status) — see [DEF.md](DEF.md#4-alert)
+- [x] Define `Incident` (correlated group of alerts: title, status, severity, timeline, related entities, related AI analyses) — see [DEF.md](DEF.md#5-incident)
+- [x] Define `IOC` (type, value, first_seen, last_seen, confidence, validation status, source alerts/events) — see [DEF.md](DEF.md#6-ioc)
+- [x] Define `Entity` (host, user, IP, or other actor referenced across events — enables correlation) — see [DEF.md](DEF.md#2-entity)
+- [x] Define `Detection` (a deterministic rule definition + its firing metadata, distinct from the `Alert` instance it produces) — see [DEF.md](DEF.md#3-detection)
+- [x] Define `MITRETechnique` (technique ID, name, tactic, description — locally stored subset of ATT&CK) — see [DEF.md](DEF.md#7-mitretechnique)
+- [x] Define `Recommendation` (next-step suggestion: text, source [rule-based vs LLM], related incident/alert, priority) — see [DEF.md](DEF.md#9-recommendation)
+- [x] Define `AnalysisResult` (LLM output envelope: model/provider used, prompt version, raw + parsed structured output, confidence, timestamp, latency) — see [DEF.md](DEF.md#8-analysisresult); see also [[llm-provider-abstraction]] in Phase 6
+- [x] `[HIGH VALUE]` Explicitly tag every field/table as `deterministic` or `ai_generated` at the schema level (e.g., separate tables/columns, never commingled) so provenance is enforced by the data model, not just convention — provenance convention documented in [DEF.md](DEF.md#conventions)
+- [ ] Design relational schema (SQLAlchemy models) capturing the above and their relationships (Event ↔ Alert ↔ Incident ↔ IOC ↔ Entity ↔ MITRETechnique ↔ Recommendation ↔ AnalysisResult) — relationships and ERD defined in [DEF.md](DEF.md#entity-relationship-overview); SQLAlchemy models not yet written
 - [ ] Set up Alembic migrations, first migration creating all core tables
 - [ ] Implement the data-layer abstraction: SQLAlchemy engine/session configured from `DATABASE_URL`, supporting both `postgresql+psycopg` and `sqlite` dialects without code changes elsewhere
 - [ ] Write Pydantic schemas mirroring ORM models for API I/O (request/response), separate from ORM models

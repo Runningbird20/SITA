@@ -1,0 +1,31 @@
+# --- Python (backend) ---
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+*.db
+*.sqlite3
+
+# --- Node (frontend) ---
+node_modules/
+dist/
+dist-ssr/
+*.local
+
+# --- Docker ---
+*.pid
+
+# --- Env / secrets ---
+.env
+.env.*
+!.env.example
+
+# --- Editors / OS ---
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.DS_Store
+*.swp
