@@ -77,6 +77,10 @@
   color: var(--color-green);
 }
 
+.summary-item[data-status="implemented_static"] {
+  color: var(--color-yellow);
+}
+
 .summary-item[data-status="broken"] {
   color: var(--color-red);
 }

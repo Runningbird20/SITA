@@ -30,7 +30,6 @@ function App() {
     for (const { status } of evaluated) initial[status] += 1;
     return initial;
   }, [evaluated]);
-  const greenCount = counts.implemented + counts.implemented_static;
 
   return (
     <div className="dashboard">
@@ -64,7 +63,10 @@ function App() {
 
       <section className="summary-bar">
         <span className="summary-item" data-status="implemented">
-          {greenCount} implemented
+          {counts.implemented} working
+        </span>
+        <span className="summary-item" data-status="implemented_static">
+          {counts.implemented_static} implemented
         </span>
         <span className="summary-item" data-status="broken">
           {counts.broken} broken
@@ -83,11 +85,11 @@ function App() {
       <footer className="dashboard-footer">
         <p>
           Phases 0–2 are checked live against the running backend (<code>/healthz</code>,{" "}
-          <code>/openapi.json</code>) — green means "Working," verified just now. Phase 3 has no
-          REST endpoint yet (deliberately deferred to Phase 9), so it can't be checked live, but
-          it's genuinely complete — green "Implemented" is asserted from its own test suite and
-          report, not guessed. Phases 4–15 have no built surface at all yet, shown gray rather than
-          guessed at.
+          <code>/openapi.json</code>) — green means "Working," verified just now. Phases 3–7 have no
+          REST endpoint yet (deliberately deferred to Phase 9), so they can't be checked live, but
+          they're genuinely complete — yellow "Implemented" is asserted from each phase's own test
+          suite and report, not guessed. Red means a live check ran and failed. Phases 8–15 have no
+          built surface at all yet, shown gray rather than guessed at.
         </p>
       </footer>
     </div>

@@ -1062,3 +1062,78 @@ Everything above is implemented and verified, matching the specification exactly
 This phase touches no database tables and required no Postgres verification — `LLMProvider` and its providers are pure in-memory/network components with zero persistence; wiring `LLMResponse` into the `AnalysisResult` table is Phase 7's job.
 
 Confirmed against the Definition of Done: the app runs fully with `MockProvider` and zero network calls (the real project default — see `test_current_default_settings_use_mock`), swapping to `OllamaProvider` requires no code changes elsewhere (only `LLM_PROVIDER=ollama` in config), and every response records `provider`/`model`/`prompt_version`/`latency_ms`.
+
+---
+
+# Phase 7: AI-Powered Triage
+
+## Scope
+
+Phase 6 proved the provider mechanism works with an illustrative schema. Phase 7 writes the six real triage tasks — one per `AnalysisTaskType` value from Phase 1 — and is the first code that actually calls `LLMProvider.generate()` from a real pipeline step and persists the result into `AnalysisResult`. Everything here is incident-scoped: all six tasks read the same incident context and write `AnalysisResult.incident_id` (never `alert_id` — Phase 7 doesn't introduce any alert-scoped task).
+
+## Task registry
+
+One `_TriageTask` per `AnalysisTaskType` value, run in this fixed order for every incident:
+
+| `task_type` | `prompt_version` | Response schema (`app/triage/schemas.py`) | Side effect beyond the `AnalysisResult` row |
+|---|---|---|---|
+| `incident_summary` | `triage-incident-summary-v1` | `IncidentSummaryOutput{summary: str, key_points: list[str]}` | none |
+| `severity_explanation` | `triage-severity-explanation-v1` | `SeverityExplanationOutput{explanation: str}` | none |
+| `attack_classification` | `triage-attack-classification-v1` | `AttackClassificationOutput{category: str, kill_chain_stage: str, rationale: str}` | none |
+| `investigation_hypothesis` | `triage-investigation-hypothesis-v1` | `InvestigationHypothesisOutput{hypotheses: list[str]}` | none |
+| `investigation_steps` | `triage-investigation-steps-v1` | `InvestigationStepsOutput{steps: list[InvestigationStep{text: str, priority: low\|medium\|high}]}` | one `Recommendation(source=llm, analysis_result_id=<this row>)` per step |
+| `mitre_suggestion` | `triage-mitre-suggestion-v1` | `MitreSuggestionOutput{techniques: list[MitreTechniqueSuggestion{technique_id, technique_name, rationale}]}` | one `AlertMitreMapping(source=llm, analysis_result_id=<this row>)` per (incident alert × suggested technique that exists in the local `MITRETechnique` table) |
+
+Severity is the one task with an explicit guardrail in its own prompt: the deterministic `Incident.severity` and each alert's `severity_factors` are given to the model as fact, and the prompt instructs it to *explain*, never recompute — matching the engineering principle that the LLM is never the sole source of truth for a security decision.
+
+## Context building (`app/triage/context.py`)
+
+`build_incident_context(incident) -> IncidentContext` walks the ORM relationships already loaded in Phase 1–5 (`incident.alerts`, each alert's `.detection`, `.iocs`, `.mitre_mappings`) into a plain dataclass, and `render_context_block(ctx) -> str` renders it once into the deterministic text block every one of the six prompts embeds. One render function, reused six times, keeps prompt formatting from drifting per-task and keeps the "what the model was actually shown" auditable from one place.
+
+## Idempotency / re-run semantics
+
+Per TODO.md's "idempotent/re-runnable" requirement: before calling `generate()` for a given `(incident, task_type)`, the pipeline checks whether an `AnalysisResult` with that `incident_id`/`task_type`/`prompt_version` already exists and skips the call if so (`force=True` bypasses this and always regenerates). This makes prompt-version bumps the mechanism for intentional regeneration — the same "bump the version, get a fresh model call" pattern Phase 6 leaves `prompt_version` a plain tag for — while a plain re-run of the pipeline over unchanged incidents does zero LLM calls and zero writes, matching the correlation and IOC pipelines' own "safe to run repeatedly" behavior.
+
+## MITRE cross-check: inert until Phase 8, not deferred code
+
+`mitre_suggestion` writes `AlertMitreMapping(source=llm, ...)` rows only for technique IDs the model names that already exist in the local `mitre_techniques` table — populated by Phase 8's vendored dataset, which doesn't exist yet. Until Phase 8 lands, every suggested technique ID fails that lookup and no mapping rows are written; `AnalysisResult.parsed_output` still records the raw suggestion regardless, so nothing is lost. This is the same "real, tested code path, inert until Phase 8" pattern TODO.md already documents for correlation's shared-MITRE-technique signal (Phase 5). Deliberately, no extra "disagreement" field is added anywhere: because `AlertMitreMapping` keeps `source='rule'` and `source='llm'` as separate rows per the Phase 1 design, a consumer can already compute agreement/disagreement per alert by comparing the two `source` groups directly from the data — inventing a redundant flag would violate the "provenance must be checkable from the data itself" principle by duplicating what the schema already exposes.
+
+`mitre_suggestion` is incident-scoped like the other five tasks (one `AnalysisResult` per incident, not per alert), so a suggested technique is fanned out to every alert currently in that incident rather than attributed to a single one — a deliberate simplification (see PHASE-7.md's Key Decisions) rather than an oversight.
+
+## Recommendations from `investigation_steps`
+
+Each `InvestigationStep` becomes one `Recommendation` row: `source=llm`, `analysis_result_id` set to the producing `AnalysisResult`, `status=open`, `priority` taken directly from the step. This is a distinct code path from Phase 9's future rule-based recommendations (`source=rule_based`, no `analysis_result_id`) — both share the one `Recommendation` table per the Phase 1 design, distinguished only by `source`.
+
+## Pipeline & CLI
+
+```python
+def run_triage(
+    db: Session,
+    incident_id: uuid.UUID | None = None,
+    since: datetime | None = None,
+    provider: LLMProvider | None = None,
+    config: LLMConfig | None = None,
+    force: bool = False,
+) -> TriageRunReport: ...
+```
+
+`provider`/`config` default to `get_llm_provider()`/`default_llm_config()` (Phase 6's registry) when omitted — real callers never need to import a concrete provider, tests inject a `MockProvider` directly. `incident_id` scopes to one incident; otherwise every incident with `last_activity_at >= since` (or every incident, if `since` is omitted) is processed, six tasks each. `backend/app/triage/cli.py` mirrors Phase 5/6's CLI shape: `uv run python -m app.triage.cli [--incident-id UUID] [--since ...] [--force]`.
+
+## Phase 7 Status: implemented
+
+Everything above is implemented and verified, matching the specification exactly (including one refinement made while implementing — see below):
+
+- Response schemas: `backend/app/triage/schemas.py` (`IncidentSummaryOutput`, `SeverityExplanationOutput`, `AttackClassificationOutput`, `InvestigationHypothesisOutput`, `InvestigationStepsOutput`/`InvestigationStep`, `MitreSuggestionOutput`/`MitreTechniqueSuggestion`)
+- Context building: `backend/app/triage/context.py` (`build_incident_context`, `render_context_block`)
+- Prompts: `backend/app/triage/prompts.py` (six builders + `PROMPT_VERSION_*` constants)
+- Pipeline & CLI: `backend/app/triage/pipeline.py` (`run_triage`, the `TASKS` registry), `cli.py`
+- `TriageRunReport` schema: `backend/app/schemas/triage_run.py`
+- Tests: `backend/tests/unit/test_triage_{context,prompts,pipeline,cli}.py` (19 cases — one `AnalysisResult` per task type, `investigation_steps` → `Recommendation` rows, `mitre_suggestion` → `AlertMitreMapping` rows only when the technique exists locally (and none when it doesn't, with the raw suggestion still preserved in `parsed_output`), idempotent re-run vs. `force=True` regeneration, invalid output creating no `Recommendation`/`AlertMitreMapping`, `incident_id`/`since` scoping)
+
+**One refinement made during implementation**: real verification against a live Postgres container (not just SQLite, which doesn't enforce `VARCHAR` length) caught that three of the six `prompt_version` tags — `triage-severity-explanation-v1`, `triage-attack-classification-v1`, `triage-investigation-hypothesis-v1` — exceeded `AnalysisResult.prompt_version`'s `VARCHAR(30)` column from Phase 1's schema, failing the insert with `StringDataRightTruncation`. Every unit test passed against SQLite regardless, since SQLite silently accepts oversized `VARCHAR` values. Fixed by shortening the three tags (`triage-severity-explain-v1`, `triage-attack-classify-v1`, `triage-inv-hypothesis-v1`) to fit, and added a regression test (`test_prompt_versions_fit_the_analysis_result_column`) that reads the column's actual length from the model rather than hardcoding `30`, so a future column-width or tag change can't silently drift apart again. Same "caught by actually running it, not by reading the code" pattern as Phase 4/5/6's own refinements.
+
+Verified against a live Postgres container: seeded a real brute-force event burst through `run_detection`/`run_correlation`, ran `run_triage` with a `MockProvider` returning valid completions for every task, and confirmed (inside a rolled-back transaction, so nothing was left in the dev database) all 6 `AnalysisResult` rows persisted with `parsed_output` round-tripping through `JSONB` as a `dict`, 2 `Recommendation` rows from `investigation_steps`, and 1 `AlertMitreMapping` row from `mitre_suggestion` once a matching `MITRETechnique` row existed.
+
+Same deliberate gap as Phase 3–6: no REST endpoint (Phase 9's job), so the frontend dashboard shows Phase 7 as a static green "Implemented," not a live-checked "Working."
+
+See [Documentation/PHASE-7.md](PHASE-7.md) for the full narrative and `TODO.md` Phase 7 for the itemized checklist.
