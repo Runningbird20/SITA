@@ -70,6 +70,21 @@ than duplicated here. Run on-demand via
 a GeoIP resolver that is currently a small static stub, documented as a known
 limitation rather than a real geolocation capability.
 
+## IOC Extraction
+
+`backend/app/ioc/` pulls indicators of compromise out of `SecurityEvent`
+rows into the `IOC` table, deduplicated by `(ioc_type, value)`. Two
+strategies apply per normalized field, declared explicitly rather than
+inferred — structured fields (`source_ip`, `username`, `query_name`, ...)
+are trusted directly; free-text fields (`command_line`, `path`) are
+regex-scanned for embedded indicators. The full field map, the 6 regex
+extractors, and the confidence scale are defined in
+[DEF.md § Phase 4](../Documentation/DEF.md#phase-4-ioc-extraction) rather
+than duplicated here. Run on-demand via `uv run python -m app.ioc.cli`,
+recommended after `app.detection.cli` so its second pass can roll matched
+alerts' IOCs up onto `alert_ioc` — no REST endpoint yet, same Phase-9
+deferral as detection.
+
 ## Data Layer
 
 SQLAlchemy models sit behind a single `DATABASE_URL`; the dialect (Postgres in

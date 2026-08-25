@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import RedirectResponse
 
 from app.api.events import router as events_router
 from app.api.health import router as health_router
@@ -43,3 +44,11 @@ app.add_middleware(
 
 app.include_router(health_router)
 app.include_router(events_router)
+
+
+@app.get("/", include_in_schema=False)
+def root() -> RedirectResponse:
+    """Bare API root has nothing of its own to show — send a human
+    browsing to it straight to the interactive docs instead of a 404.
+    """
+    return RedirectResponse(url="/docs")

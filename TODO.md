@@ -171,19 +171,19 @@ SITA/
 
 **Tasks**
 
-- [ ] Implement deterministic extractor: IPv4 addresses (regex + validation, reject private/reserved ranges where relevant to context)
-- [ ] Implement deterministic extractor: IPv6 addresses
-- [ ] Implement deterministic extractor: domains (regex + basic TLD/format validation)
-- [ ] Implement deterministic extractor: URLs
-- [ ] Implement deterministic extractor: file hashes (MD5/SHA1/SHA256, validated by length/charset)
-- [ ] Implement deterministic extractor: email addresses
-- [ ] Implement deterministic extractor: usernames (context-aware — only from fields known to carry them, to avoid false positives)
-- [ ] Deduplicate and upsert IOCs against the `IOC` table, tracking first_seen/last_seen and source references
-- [ ] `[STRETCH]` Add LLM-assisted extraction as a secondary pass over free-text fields (e.g., log messages) that the regex layer can't parse, with output validated against the same deterministic validators before being trusted
-- [ ] Clearly tag each stored IOC with its extraction source (`regex` vs `llm_assisted`)
-- [ ] Write extraction accuracy tests against a labeled fixture set (known IOCs embedded in synthetic text)
+- [x] Implement deterministic extractor: IPv4 addresses (regex + validation, reject private/reserved ranges where relevant to context) — `backend/app/ioc/ipv4.py`; private/reserved rejected from free-text scans only, kept for structured fields (needed for Phase 5 correlation) — see [DEF.md § Phase 4](Documentation/DEF.md#regex-extractors-the-scan-strategy)
+- [x] Implement deterministic extractor: IPv6 addresses — `backend/app/ioc/ipv6.py`, same private/reserved policy
+- [x] Implement deterministic extractor: domains (regex + basic TLD/format validation) — `backend/app/ioc/domain.py`; excludes RFC 2606/6762 reserved TLDs and a file-extension denylist (fixed a real false-positive bug caught during verification — see PHASE-4.md)
+- [x] Implement deterministic extractor: URLs — `backend/app/ioc/url.py`
+- [x] Implement deterministic extractor: file hashes (MD5/SHA1/SHA256, validated by length/charset) — `backend/app/ioc/file_hash.py`, classified by matched length
+- [x] Implement deterministic extractor: email addresses — `backend/app/ioc/email.py`
+- [x] Implement deterministic extractor: usernames (context-aware — only from fields known to carry them, to avoid false positives) — `backend/app/ioc/username.py`; field-only, never regex-scanned from free text
+- [x] Deduplicate and upsert IOCs against the `IOC` table, tracking first_seen/last_seen and source references — `backend/app/ioc/service.py` (`upsert_ioc`, `link_event`), `pipeline.py`'s pass 2 additionally rolls matched-event IOCs up onto `alert_ioc`
+- [ ] `[STRETCH]` Add LLM-assisted extraction as a secondary pass over free-text fields (e.g., log messages) that the regex layer can't parse, with output validated against the same deterministic validators before being trusted — not implemented this pass
+- [x] Clearly tag each stored IOC with its extraction source (`regex` vs `llm_assisted`) — every row this phase produces is `regex`; `llm_assisted` stays reserved for the unimplemented stretch goal
+- [x] Write extraction accuracy tests against a labeled fixture set (known IOCs embedded in synthetic text) — 25 extractor-level unit tests plus integration tests reaching all 9 `IOCType` values through the real pipeline against real datasets, with dedicated benign-data false-positive checks
 
-**Definition of Done:** All 7 IOC types are deterministically extracted and validated with measured precision/recall against a labeled fixture set. If implemented, LLM-assisted extraction never bypasses deterministic validation.
+**Definition of Done:** All 7 IOC types are deterministically extracted and validated with measured precision/recall against a labeled fixture set. If implemented, LLM-assisted extraction never bypasses deterministic validation. — met (LLM-assisted extraction not implemented, so the second clause is vacuously satisfied); verified via `uv run python -m app.ioc.cli` against every real dataset (all 9 `IOCType` values populated, zero false positives on benign fixtures) and against a live Postgres container.
 
 ---
 

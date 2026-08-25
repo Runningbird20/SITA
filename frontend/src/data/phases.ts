@@ -73,7 +73,11 @@ export const PHASES: Phase[] = [
     id: 4,
     title: "IOC Extraction",
     goal: "Pull structured indicators out of events/alerts, validated deterministically.",
-    evaluate: notImplemented,
+    // Same shape as Phase 3: no REST endpoint yet (deferred to Phase 9), but
+    // genuinely complete — 6 regex extractors + username, all 9 IOCType
+    // values verified through the real pipeline against SQLite and
+    // Postgres. See Documentation/PHASE-4.md.
+    evaluate: staticImplemented,
   },
   {
     id: 5,

@@ -169,7 +169,7 @@ A validated indicator of compromise, deduplicated across every event/alert that 
 | `value` | VARCHAR | No | The indicator itself, normalized (lowercased domains, canonical IP form) |
 | `extraction_source` | Enum: `regex`, `llm_assisted` | No | Provenance of the extraction — never blended within one row |
 | `validation_status` | Enum: `valid`, `invalid`, `unverified` | No | Result of deterministic format/range validation, applied even to `llm_assisted` extractions before they are trusted |
-| `confidence` | FLOAT (0.0–1.0) | No | Deterministic confidence (1.0 for regex-matched + validated; lower, rule-defined ceiling for `llm_assisted`) |
+| `confidence` | FLOAT (0.0–1.0) | No | Deterministic confidence — refined in [DEF.md § Phase 4](#confidence-scale) into a graded per-strategy scale (structured field vs. free-text scan, and by IOC-type specificity) rather than a flat 1.0; a lower, rule-defined ceiling still applies to `llm_assisted` rows |
 | `first_seen` | TIMESTAMP | No | Earliest event/alert referencing this IOC |
 | `last_seen` | TIMESTAMP | No | Most recent event/alert referencing this IOC |
 | `created_at` | TIMESTAMP | No | Row creation time |
@@ -680,3 +680,117 @@ Verified against both SQLite and a live Postgres container — `severity_factors
 One deliberate, documented gap: Phase 3 has no REST endpoint (see "Execution Pipeline & CLI" above), so it has no live-checkable HTTP surface. The frontend build-status dashboard (see [FRONTEND.md](FRONTEND.md)) shows it as a static green "Implemented" — distinct from the live-verified green "Working" used for Phases 0–2 — asserted from this phase's own test suite and report rather than checked at runtime, since there's nothing to check yet. It will switch to a live "Working" check once Phase 9 exposes alerts over the API.
 
 See [Documentation/PHASE-3.md](PHASE-3.md) for the full narrative and `TODO.md` Phase 3 for the itemized checklist.
+
+---
+
+# Phase 4: IOC Extraction
+
+## Scope
+
+Deterministic extraction of indicators of compromise from `SecurityEvent` rows into the `IOC` table Phase 1 already built, deduplicated by `(ioc_type, value)`, linked back to their source events (and, transitively, the alerts those events belong to). No LLM involvement in this phase — the `[STRETCH]` LLM-assisted extraction task from `TODO.md` is not implemented; see the status note at the end of this section.
+
+## Two extraction strategies, not one
+
+Every `SecurityEvent.normalized` field either **is** a structured indicator already (e.g. `auth.source_ip` — the ingestion adapter already put a value there specifically because it's an IP) or **might contain** one embedded in free text (e.g. `endpoint.command_line`, `web.path`). Treating both cases the same way — regex-scanning everything, including fields that are already typed — would be both wasteful and less accurate than just trusting a field's known meaning. So extraction uses two distinct strategies per normalized field, declared explicitly per source type rather than inferred:
+
+| `source_type` | Field | Strategy | Extracts |
+|---|---|---|---|
+| `auth` | `source_ip` | field (`ip`) | `ipv4` or `ipv6`, classified by `ipaddress.ip_address()` |
+| `auth` | `username` | field (`username`) | `username` |
+| `endpoint` | `command_line` | scan | any of `ipv4`, `ipv6`, `domain`, `url`, `file_hash_*`, `email` found embedded in the text |
+| `endpoint` | `user` | field (`username`) | `username` |
+| `network` | `src_ip`, `dst_ip` | field (`ip`) | `ipv4` or `ipv6` |
+| `dns` | `query_name` | field (`domain`) | `domain` |
+| `dns` | `resolved_ips` | field (`ip_list`) | one `ipv4`/`ipv6` per list entry |
+| `web` | `source_ip` | field (`ip`) | `ipv4` or `ipv6` |
+| `web` | `path` | scan | any embedded indicator, same as `command_line` |
+
+Fields not listed (`dest_host`, `host`, `process_name`, `parent_process_name`, `protocol`, `status_code`, `user_agent`, `event_result`, `auth_method`, `response_code`, `query_type`, `method`) are never scanned — they're either not IOC-shaped or (in the case of `dest_host`/`host`) represent an `Entity`, not an `IOC`, per the Phase 1 schema's own type distinction. **Usernames are never extracted from free text** — only from the two fields explicitly known to carry them (`auth.username`, `endpoint.user`) — because a regex cannot distinguish "this word is a username" from "this word is any other word." This mirrors the `[HIGH VALUE]`-flagged design intent already stated in `TODO.md`'s Phase 4 task list.
+
+## Regex extractors (the `scan` strategy)
+
+Each of the 6 scan-eligible types has its own small extractor: match a pattern, then apply a semantic validity check before accepting the candidate. None of them run against `username`, since that's field-only.
+
+- **`ipv4`** — standard dotted-quad regex, validated via `ipaddress.IPv4Address`. **Private, loopback, link-local, and reserved addresses are filtered out entirely** when found via free-text scanning — they're overwhelmingly noise in that context (version strings, unrelated internal references) and the structured `ip` field strategy already captures every internal IP that actually matters for correlation (Phase 5). This is the concrete meaning of `TODO.md`'s "reject private/reserved ranges where relevant to context": the *context* is exactly what determines whether a private IP is trusted (structured field: yes, embedded in arbitrary text: no).
+- **`ipv6`** — same shape, via `ipaddress.IPv6Address`, same private/reserved filtering.
+- **`domain`** — a label-dot-label…-TLD pattern, validated by per-label length (1–63 chars) and a final TLD segment that is alphabetic-only (this is also what naturally excludes dotted-quad IPs from ever matching as a "domain" — a numeric last segment fails the TLD check). Two exclusion lists apply: special-use/reserved TLDs from RFC 2606 / RFC 6762 (`.internal`, `.local`, `.test`, `.invalid`, `.localhost`) — these aren't indicators of anything, they're reserved non-routable names, the same "reject the non-signal" principle applied to IPs above — and a small denylist of common file extensions (`.exe`, `.bin`, `.dll`, `.json`, …), because "payload.bin" and "powershell.exe" both otherwise match the same label.TLD shape as a real domain once they appear in a Windows path or URL fragment inside free text. **`.example` is deliberately *not* in the reserved-TLD exclusion list** despite being RFC 2606-reserved: this project's own synthetic datasets use `.example` throughout, per that same RFC's convention, to represent externally-hosted malicious domains without pointing at a real one (e.g. Phase 2's `cdn-update-service.example`) — filtering it out would make Phase 4 unable to detect exactly the kind of domain its own fixtures are built to represent.
+- **`url`** — `scheme://...` pattern (`http`, `https`, `ftp`), validated via `urllib.parse.urlparse` requiring both a scheme and a netloc.
+- **`file_hash_md5` / `file_hash_sha1` / `file_hash_sha256`** — one regex, classified by matched length: exactly 32 hex chars → MD5, 40 → SHA1, 64 → SHA256, all word-boundary bounded so a match can't be a substring of a longer hex blob.
+- **`email`** — standard `local@domain` shape, validated by requiring the domain part to contain at least one dot.
+
+## Confidence scale
+
+Refines Phase 1's original flat "1.0 for regex-matched + validated" into a scale that actually reflects how certain each extraction path is:
+
+| Extraction path | Confidence |
+|---|---|
+| Field strategy (`ip`, `domain`, `username`, `ip_list`) | `1.0` — the source field's own meaning already guarantees what this value is |
+| Scan: `file_hash_*` | `0.9` — a 32/40/64-char hex string is extremely unlikely to be anything else |
+| Scan: `url` | `0.85` |
+| Scan: `email` | `0.85` |
+| Scan: `ipv4` / `ipv6` | `0.7` |
+| Scan: `domain` | `0.6` — the highest false-positive risk of the scan types (plausible-looking dotted strings appear in more contexts than the others) |
+
+All values are deterministic constants, not computed from any model — `ExtractionSource` is always `regex` for everything this phase produces (`llm_assisted` stays reserved for the unimplemented stretch goal).
+
+## Deduplication, linking, and the two-pass pipeline
+
+```python
+def run_ioc_extraction(db: Session, since: datetime | None = None) -> IOCExtractionReport:
+    """Pass 1: for every SecurityEvent (optionally occurred_at >= since),
+    extract candidates, upsert into IOC by (ioc_type, value) — updating
+    first_seen/last_seen on an existing row, inserting a new one otherwise —
+    and link event_ioc if not already linked.
+
+    Pass 2: for every Alert, union the IOCs already linked to its matched
+    events into alert_ioc. Runs over *all* alerts every call (not scoped by
+    `since`), so it self-heals regardless of whether extraction or detection
+    ran first — see the ordering note below.
+    """
+```
+
+**Recommended pipeline order**: ingest → detect (Phase 3) → extract IOCs. Running extraction before detection still populates `event_ioc` correctly, but `alert_ioc` will be empty for alerts that don't exist yet — running extraction again after detection (cheap, since pass 1 is idempotent per `(ioc_type, value)` dedup) fully backfills `alert_ioc` at that point. This is the same "re-running is safe but ordering matters for completeness" shape Phase 3's pipeline already has, not a new kind of limitation.
+
+```python
+class IOCExtractionReport(BaseModel):
+    since: datetime | None
+    events_scanned: int
+    iocs_created: int
+    iocs_updated: int
+    event_links_created: int
+    alert_links_created: int
+    iocs_by_type: dict[str, int]
+```
+
+No REST endpoint in this phase either, for the same reason as Phase 3: Phase 9 owns the API surface. Triggered via `uv run python -m app.ioc.cli [--since ...]`, or `run_ioc_extraction()` directly from tests.
+
+## Dataset additions
+
+Existing Phase 2/3 datasets already exercise `ipv4` and `username` (extensively, via `auth.source_ip`/`username` and `network.src_ip`/`dst_ip`) and `domain` (via `dns.query_name`). Three new files close the remaining gaps:
+
+- `data/synthetic_events/network/ipv6_traffic.jsonl` — no existing dataset has a single IPv6 address; this adds a small benign IPv6 conversation.
+- `data/synthetic_events/endpoint/ioc_rich_activity.jsonl` — realistic incident-response-style commands (a download via `Invoke-WebRequest` embedding an IPv4 and a URL; a `Get-FileHash` comparison embedding a SHA256 literal) — exercises `url` and `file_hash_sha256` extraction from `command_line`.
+- `data/synthetic_events/web/ioc_rich_requests.jsonl` — a password-reset path embedding an email address, and an open-redirect-style path embedding a full external URL — exercises `email` and `url` extraction from `path`.
+
+New files rather than edits to Phase 2/3's existing fixtures, so their already-verified detection-rule behavior (Phase 3) can't be disturbed by IOC-focused additions.
+
+## Phase 4 Status: implemented
+
+Everything above is implemented and verified, matching the specification exactly (including the two refinements — the confidence scale and the `.example`/file-extension exclusion rules — made explicit above rather than silently diverging from Phase 1's original flat-1.0 sketch):
+
+- 6 regex extractors: `backend/app/ioc/{ipv4,ipv6,domain,url,file_hash,email}.py`; field-only `backend/app/ioc/username.py`
+- Field-extraction map and dispatcher: `backend/app/ioc/field_extraction.py`
+- Upsert/dedup + linking: `backend/app/ioc/service.py` (`upsert_ioc`, `link_event`)
+- Two-pass pipeline: `backend/app/ioc/pipeline.py` (`run_ioc_extraction`)
+- CLI: `backend/app/ioc/cli.py` (`uv run python -m app.ioc.cli [--since ...]`)
+- `IOCExtractionReport` schema: `backend/app/schemas/ioc_run.py`
+- 3 new synthetic datasets: `data/synthetic_events/network/ipv6_traffic.jsonl`, `data/synthetic_events/endpoint/ioc_rich_activity.jsonl`, `data/synthetic_events/web/ioc_rich_requests.jsonl`
+- Tests: `backend/tests/unit/test_ioc_extractors.py` (25 cases across all 6 regex types + username), `test_ioc_field_extraction.py`, `test_ioc_service.py`, `test_ioc_pipeline.py`, `test_ioc_cli.py`, and `backend/tests/integration/test_ioc_extraction_against_datasets.py` (all 9 `IOCType` values reached through the real pipeline against real datasets, benign data produces zero false positives, the scenario's alert_ioc rollup verified end-to-end)
+
+Verified against both SQLite and a live Postgres container — dedup, `event_ioc`/`alert_ioc` junction population, and confidence values all confirmed correct via direct `psql` inspection.
+
+Same deliberate gap as Phase 3: no REST endpoint (Phase 9's job), so the frontend dashboard shows Phase 4 as a static green "Implemented," not a live-checked "Working."
+
+LLM-assisted extraction (`[STRETCH]` in `TODO.md`) was not implemented in this pass — see `TODO.md` Phase 4 for what remains optional.
+
+See [Documentation/PHASE-4.md](PHASE-4.md) for the full narrative and `TODO.md` Phase 4 for the itemized checklist.
