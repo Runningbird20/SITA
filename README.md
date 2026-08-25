@@ -105,7 +105,14 @@ npm install
 npm run dev
 ```
 
-Visit http://localhost:5173.
+Visit http://localhost:5173. Right now the frontend is a **build status
+dashboard**: one row per roadmap phase, each with a live status dot —
+gray (not implemented), green (checked against the running backend and
+working), or red (expected to work but the backend is unreachable or
+unhealthy). Phases 0–2 are checked live via `/healthz` and `/openapi.json`;
+phases 3–15 have no built surface yet, so they're shown as not implemented
+rather than guessed at. This gets replaced by the real SOC-style dashboard
+in Phase 10.
 
 ```bash
 npm run lint

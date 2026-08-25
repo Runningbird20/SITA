@@ -1,0 +1,59 @@
+.status-dot-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+  white-space: nowrap;
+}
+
+.status-dot {
+  width: 0.65rem;
+  height: 0.65rem;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.status-dot-wrap[data-status="not_implemented"] .status-dot {
+  background: var(--color-gray);
+}
+
+.status-dot-wrap[data-status="implemented"] .status-dot {
+  background: var(--color-green);
+  box-shadow: 0 0 6px 0 var(--color-green-glow);
+}
+
+.status-dot-wrap[data-status="broken"] .status-dot {
+  background: var(--color-red);
+  box-shadow: 0 0 6px 0 var(--color-red-glow);
+}
+
+.status-dot-wrap[data-status="checking"] .status-dot {
+  background: var(--color-gray);
+  animation: pulse 1.2s ease-in-out infinite;
+}
+
+.status-dot-wrap[data-status="not_implemented"] .status-dot-label {
+  color: var(--color-text-dim);
+}
+
+.status-dot-wrap[data-status="implemented"] .status-dot-label {
+  color: var(--color-green);
+}
+
+.status-dot-wrap[data-status="broken"] .status-dot-label {
+  color: var(--color-red);
+}
+
+.status-dot-wrap[data-status="checking"] .status-dot-label {
+  color: var(--color-text-dim);
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.3;
+  }
+}
