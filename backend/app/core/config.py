@@ -33,7 +33,9 @@ class Settings(BaseSettings):
     ollama_model: str = "llama3.1:8b-instruct-q4_K_M"
     llm_request_timeout_seconds: float = 30.0
     llm_max_retries: int = 2
+    llm_retry_backoff_seconds: float = 0.2
     llm_temperature: float = 0.2
+    llm_max_tokens: int = 1024
 
 
 @lru_cache

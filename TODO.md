@@ -216,22 +216,22 @@ SITA/
 
 **Tasks**
 
-- [ ] `[HIGH VALUE]` Design `LLMProvider` interface (e.g., `generate(prompt, schema, config) -> AnalysisResult`) — see [[llm-provider-abstraction]]
-- [ ] Implement `OllamaProvider` (HTTP client against local Ollama instance)
-- [ ] Implement `MockProvider` returning deterministic canned/templated responses — used in tests and when Ollama is unavailable, so the app degrades gracefully rather than failing
-- [ ] Define structured output contracts (JSON schemas) per LLM task instead of relying on free-form text — enforce via Ollama's JSON mode/grammar or explicit parsing + validation
-- [ ] Implement prompt versioning (prompts stored as versioned templates, version recorded on every `AnalysisResult`)
-- [ ] Implement model configuration (model name, temperature, max tokens, etc. sourced from config, not hardcoded)
-- [ ] Implement timeout handling for provider calls
-- [ ] Implement retry behavior (bounded retries with backoff on transient failures)
-- [ ] Implement response validation (parse + validate against the expected schema; reject/flag malformed output rather than trusting it blindly)
-- [ ] Implement failure handling: on provider failure/timeout/invalid response, the system continues operating on deterministic results alone and clearly marks AI analysis as unavailable
-- [ ] Log model metadata per call: provider, model name, prompt version, latency, token counts if available, success/failure
-- [ ] Document recommended local model(s) and rationale (see [[recommended-local-model]] open question)
-- [ ] Write provider tests using `MockProvider` (no live Ollama dependency in CI)
-- [ ] `[STRETCH]` Write opportunistic integration tests that run only when a real Ollama instance is detected
+- [x] `[HIGH VALUE]` Design `LLMProvider` interface (e.g., `generate(prompt, schema, config) -> AnalysisResult`) — see [[llm-provider-abstraction]]; `backend/app/llm/base.py` (`LLMProvider.generate`); see [DEF.md § Phase 6, "Interface: template method, not duplicated retry logic"](Documentation/DEF.md#interface-template-method-not-duplicated-retry-logic)
+- [x] Implement `OllamaProvider` (HTTP client against local Ollama instance) — `backend/app/llm/ollama_provider.py`
+- [x] Implement `MockProvider` returning deterministic canned/templated responses — used in tests and when Ollama is unavailable, so the app degrades gracefully rather than failing — `backend/app/llm/mock_provider.py`
+- [x] Define structured output contracts (JSON schemas) per LLM task instead of relying on free-form text — enforce via Ollama's JSON mode/grammar or explicit parsing + validation — `backend/app/llm/validation.py` (`validate_structured_output`, Pydantic `model_validate_json`) and `OllamaProvider`'s `"format": "json"`; per-task schemas themselves are Phase 7's job, Phase 6 proves the mechanism with an illustrative schema
+- [x] Implement prompt versioning (prompts stored as versioned templates, version recorded on every `AnalysisResult`) — `LLMRequest.prompt_version`/`LLMResponse.prompt_version` in `backend/app/llm/types.py`; deliberately a plain string tag rather than a templating engine, since there are no real prompts yet to template (see [DEF.md § Phase 6](Documentation/DEF.md))
+- [x] Implement model configuration (model name, temperature, max tokens, etc. sourced from config, not hardcoded) — `backend/app/llm/registry.py` (`default_llm_config`), all fields read from `Settings` in `backend/app/core/config.py`
+- [x] Implement timeout handling for provider calls — `LLMTimeoutError` in `backend/app/llm/exceptions.py`, raised by `OllamaProvider._complete`, handled in `LLMProvider.generate`
+- [x] Implement retry behavior (bounded retries with backoff on transient failures) — `LLMProvider.generate`'s retry loop in `backend/app/llm/base.py`
+- [x] Implement response validation (parse + validate against the expected schema; reject/flag malformed output rather than trusting it blindly) — `backend/app/llm/validation.py`
+- [x] Implement failure handling: on provider failure/timeout/invalid response, the system continues operating on deterministic results alone and clearly marks AI analysis as unavailable — `LLMProvider.generate` never raises, always returns an `LLMResponse` with `validation_status` reflecting the failure (`backend/app/llm/base.py`); wiring this into a pipeline step that runs alongside deterministic results is Phase 7's job
+- [x] Log model metadata per call: provider, model name, prompt version, latency, token counts if available, success/failure — structured `logger.warning`/`logger.info` calls in `backend/app/llm/base.py`
+- [x] Document recommended local model(s) and rationale (see [[recommended-local-model]] open question) — [DEF.md § Phase 6, "Recommended local model"](Documentation/DEF.md)
+- [x] Write provider tests using `MockProvider` (no live Ollama dependency in CI) — `backend/tests/unit/test_llm_{validation,mock_provider,generate,ollama_provider,registry,cli}.py`
+- [x] `[STRETCH]` Write opportunistic integration tests that run only when a real Ollama instance is detected — `backend/tests/integration/test_llm_ollama_live.py`
 
-**Definition of Done:** The app runs fully (ingestion → detection → correlation → API → frontend) with `MockProvider` and zero network calls. Swapping to `OllamaProvider` via config requires no code changes elsewhere. Every `AnalysisResult` records provider, model, prompt version, and latency.
+**Definition of Done:** The app runs fully (ingestion → detection → correlation → API → frontend) with `MockProvider` and zero network calls. Swapping to `OllamaProvider` via config requires no code changes elsewhere. Every `AnalysisResult` records provider, model, prompt version, and latency. Confirmed — see [DEF.md § Phase 6 Status](Documentation/DEF.md) and [PHASE-6.md](Documentation/PHASE-6.md).
 
 ---
 

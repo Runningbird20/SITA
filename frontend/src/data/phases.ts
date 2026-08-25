@@ -93,7 +93,12 @@ export const PHASES: Phase[] = [
     id: 6,
     title: "Local LLM Integration",
     goal: "A clean provider abstraction so the AI layer is swappable and never a single point of failure.",
-    evaluate: notImplemented,
+    // Same shape as Phase 3/4/5: no REST endpoint (there are no real
+    // triage prompts yet — that's Phase 7), but genuinely complete —
+    // LLMProvider base class, MockProvider, OllamaProvider, structured
+    // output validation, retry/confidence logic, all verified against a
+    // real running Ollama instance. See Documentation/PHASE-6.md.
+    evaluate: staticImplemented,
   },
   {
     id: 7,
