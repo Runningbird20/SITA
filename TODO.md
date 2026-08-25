@@ -280,24 +280,24 @@ SITA/
 
 **Tasks**
 
-- [ ] Design REST endpoints for `SecurityEvent` (list/filter/get)
-- [ ] Design REST endpoints for `Alert` (list/filter/get, filter by severity/rule/status)
-- [ ] Design REST endpoints for `Incident` (list/filter/get, including nested alerts/IOCs/AI analyses)
-- [ ] Design REST endpoints for `IOC` (list/filter/get, filter by type/confidence)
-- [ ] Design REST endpoints for `Detection` (list rule definitions and their metadata)
-- [ ] Design REST endpoints for AI analyses (`AnalysisResult`, scoped to an incident/alert)
-- [ ] Design REST endpoints for `Recommendation`
-- [ ] Design REST endpoints for `MITRETechnique` (list/get, plus incident/alert technique rollups)
-- [ ] Implement pagination (cursor or offset-based, consistent across list endpoints)
-- [ ] Implement filtering (query params per resource, validated)
-- [ ] Implement sorting (whitelisted sortable fields per resource)
-- [ ] Implement request validation via Pydantic schemas with clear 4xx error responses
-- [ ] Implement consistent error handling (structured error envelope, mapped exception handlers)
-- [ ] `[HIGH VALUE]` Ensure full OpenAPI/Swagger docs are auto-generated and accurate (FastAPI default) — polish descriptions/examples since this is a resume artifact reviewers may actually open
-- [ ] Add an endpoint to trigger/re-run the pipeline (ingest → detect → correlate → triage) for demo purposes
-- [ ] Write API tests (status codes, pagination, filtering, error cases) per resource
+- [x] Design REST endpoints for `SecurityEvent` (list/filter/get) — `GET /api/v1/events`, `GET /api/v1/events/{id}` in `backend/app/api/events.py`; see [DEF.md § Phase 9](Documentation/DEF.md#phase-9-rest-api)
+- [x] Design REST endpoints for `Alert` (list/filter/get, filter by severity/rule/status) — `backend/app/api/alerts.py`, plus `GET /alerts/{id}/mitre-techniques`
+- [x] Design REST endpoints for `Incident` (list/filter/get, including nested alerts/IOCs/AI analyses) — `backend/app/api/incidents.py`; `GET /incidents/{id}` returns `IncidentDetail` with nested `alerts`/`iocs`/`analysis_results`/`recommendations`/`mitre_techniques`
+- [x] Design REST endpoints for `IOC` (list/filter/get, filter by type/confidence) — `backend/app/api/iocs.py`
+- [x] Design REST endpoints for `Detection` (list rule definitions and their metadata) — `backend/app/api/detections.py`, `GET /detections/{id}` returns `DetectionDetail` with nested `mitre_techniques`
+- [x] Design REST endpoints for AI analyses (`AnalysisResult`, scoped to an incident/alert) — `backend/app/api/analysis_results.py`; exactly one of `incident_id`/`alert_id` required, enforced as a 422
+- [x] Design REST endpoints for `Recommendation` — `backend/app/api/recommendations.py`
+- [x] Design REST endpoints for `MITRETechnique` (list/get, plus incident/alert technique rollups) — `backend/app/api/mitre.py`; rollups live on `GET /incidents/{id}/mitre-techniques` and `GET /alerts/{id}/mitre-techniques`, reusing Phase 8's `incident_technique_rollup()`
+- [x] Implement pagination (cursor or offset-based, consistent across list endpoints) — offset-based, `Page[T]` envelope in `backend/app/schemas/pagination.py` (see DEF.md for why offset over cursor)
+- [x] Implement filtering (query params per resource, validated) — see the filter table in [DEF.md § Phase 9](Documentation/DEF.md#phase-9-rest-api)
+- [x] Implement sorting (whitelisted sortable fields per resource) — `apply_sort()` in `backend/app/api/deps.py`, per-resource whitelist dicts, `Severity`/enum fields deliberately excluded (see DEF.md)
+- [x] Implement request validation via Pydantic schemas with clear 4xx error responses — FastAPI's own query/path param typing (enums, UUIDs, bounded ints) plus `InvalidQueryParameterError` for cross-field checks
+- [x] Implement consistent error handling (structured error envelope, mapped exception handlers) — `backend/app/core/exceptions.py`, handlers in `backend/app/main.py`, one `{"error": {...}}` shape for both custom and FastAPI-native validation failures
+- [x] `[HIGH VALUE]` Ensure full OpenAPI/Swagger docs are auto-generated and accurate (FastAPI default) — polish descriptions/examples since this is a resume artifact reviewers may actually open — `openapi_tags` + per-endpoint docstrings in `backend/app/main.py`; `/docs`/`/redoc` confirmed rendering against the live stack
+- [x] Add an endpoint to trigger/re-run the pipeline (ingest → detect → correlate → triage) for demo purposes — `POST /api/v1/pipeline/run` in `backend/app/api/pipeline.py`; does not re-run ingestion itself (the existing `POST /events/{source_type}` already covers that) — see DEF.md for why
+- [x] Write API tests (status codes, pagination, filtering, error cases) per resource — `backend/tests/integration/test_{events,alerts,incidents,iocs,detections,analysis_results,recommendations,mitre,pipeline}_api.py` (51 cases)
 
-**Definition of Done:** All domain objects are exposed via a consistent, paginated, filterable, sortable REST API with auto-generated OpenAPI docs and passing API tests.
+**Definition of Done:** All domain objects are exposed via a consistent, paginated, filterable, sortable REST API with auto-generated OpenAPI docs and passing API tests. Confirmed against both SQLite integration tests and the live docker-compose Postgres stack — see [DEF.md § Phase 9 Status](Documentation/DEF.md#phase-9-status-implemented) and [PHASE-9.md](Documentation/PHASE-9.md). As a consequence, Phase 3/4/5/7/8's dashboard entries switched from static "Implemented" to live-checked "Working," honoring the promise each of their own completion reports made.
 
 ---
 

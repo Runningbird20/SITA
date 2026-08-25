@@ -63,38 +63,45 @@ export const PHASES: Phase[] = [
     id: 3,
     title: "Detection Engine",
     goal: "Deterministic, explainable rules that turn normalized events into structured alerts.",
-    // No REST endpoint exists yet (deliberately deferred to Phase 9), so
-    // there's nothing to live-check — but the phase is genuinely complete:
-    // 7 rules, 99 passing tests, verified against SQLite and Postgres. See
-    // Documentation/PHASE-3.md.
-    evaluate: staticImplemented,
+    // PHASE-3.md promised this would switch from static "Implemented" to a
+    // live check "once Phase 9 exposes alerts over the API" — Phase 9 did,
+    // via GET /api/v1/detections. Same shallow-but-honest check as Phase 2:
+    // confirms the route is genuinely mounted, not that any rule has fired.
+    evaluate: liveCheck(
+      (status) =>
+        status.healthz?.database === "ok" &&
+        (status.openApiPaths?.has("/api/v1/detections") ?? false),
+    ),
   },
   {
     id: 4,
     title: "IOC Extraction",
     goal: "Pull structured indicators out of events/alerts, validated deterministically.",
-    // Same shape as Phase 3: no REST endpoint yet (deferred to Phase 9), but
-    // genuinely complete — 6 regex extractors + username, all 9 IOCType
-    // values verified through the real pipeline against SQLite and
-    // Postgres. See Documentation/PHASE-4.md.
-    evaluate: staticImplemented,
+    // Live since Phase 9's GET /api/v1/iocs — same promise/pattern as Phase 3.
+    evaluate: liveCheck(
+      (status) =>
+        status.healthz?.database === "ok" && (status.openApiPaths?.has("/api/v1/iocs") ?? false),
+    ),
   },
   {
     id: 5,
     title: "Incident Correlation",
     goal: "Group related alerts into incidents using explainable, deterministic correlation logic.",
-    // Same shape as Phase 3/4: no REST endpoint yet (deferred to Phase 9),
-    // but genuinely complete — weighted scoring across time/IOC/host/MITRE
-    // signals, verified to reconstruct the Phase 2 scenario as one incident
-    // against both SQLite and Postgres. See Documentation/PHASE-5.md.
-    evaluate: staticImplemented,
+    // Live since Phase 9's GET /api/v1/incidents — same promise/pattern as Phase 3/4.
+    evaluate: liveCheck(
+      (status) =>
+        status.healthz?.database === "ok" &&
+        (status.openApiPaths?.has("/api/v1/incidents") ?? false),
+    ),
   },
   {
     id: 6,
     title: "Local LLM Integration",
     goal: "A clean provider abstraction so the AI layer is swappable and never a single point of failure.",
-    // Same shape as Phase 3/4/5: no REST endpoint (there are no real
-    // triage prompts yet — that's Phase 7), but genuinely complete —
+    // Deliberately still static, unlike Phase 3/4/5/7/8: the LLMProvider
+    // abstraction has no domain-object identity of its own for Phase 9 to
+    // expose a resource for — Phase 7's AnalysisResult rows are what Phase 9
+    // can live-check, not the provider layer itself. Genuinely complete —
     // LLMProvider base class, MockProvider, OllamaProvider, structured
     // output validation, retry/confidence logic, all verified against a
     // real running Ollama instance. See Documentation/PHASE-6.md.
@@ -104,32 +111,38 @@ export const PHASES: Phase[] = [
     id: 7,
     title: "AI-Powered Triage",
     goal: "LLM-assisted reasoning, always clearly labeled and layered on top of — never replacing — deterministic output.",
-    // Same shape as Phase 3-6: no REST endpoint (Phase 9's job), but
-    // genuinely complete — all six triage tasks (summary, severity
-    // explanation, attack classification, investigation hypotheses,
-    // investigation steps, MITRE suggestions) wired into a real,
-    // idempotent pipeline that persists AnalysisResult/Recommendation/
-    // AlertMitreMapping rows, verified against both SQLite and a live
-    // Postgres container. See Documentation/PHASE-7.md.
-    evaluate: staticImplemented,
+    // Live since Phase 9's GET /api/v1/analysis-results.
+    evaluate: liveCheck(
+      (status) =>
+        status.healthz?.database === "ok" &&
+        (status.openApiPaths?.has("/api/v1/analysis-results") ?? false),
+    ),
   },
   {
     id: 8,
     title: "MITRE ATT&CK Integration",
     goal: "Ground the system in a recognized security framework using local data.",
-    // Same shape as Phase 3-7: no REST endpoint (Phase 9's job), but
-    // genuinely complete — a curated local technique dataset, deterministic
-    // rule-to-technique mappings, and the incident-level technique display
-    // model, verified against both SQLite and a live Postgres container.
-    // Also switches on Phase 5's correlation MITRE-agreement signal, dormant
-    // since Phase 5 for lack of data. See Documentation/PHASE-8.md.
-    evaluate: staticImplemented,
+    // Live since Phase 9's GET /api/v1/mitre-techniques.
+    evaluate: liveCheck(
+      (status) =>
+        status.healthz?.database === "ok" &&
+        (status.openApiPaths?.has("/api/v1/mitre-techniques") ?? false),
+    ),
   },
   {
     id: 9,
     title: "REST API",
     goal: "A well-documented, consistent API surface over every domain object.",
-    evaluate: notImplemented,
+    // Checks the one endpoint genuinely new to Phase 9 itself rather than
+    // any single resource's list/get pair (those are Phase 3-8's own
+    // live checks above) — the pipeline-trigger endpoint, plus pagination,
+    // filtering, sorting, and the structured error envelope underneath
+    // every resource. See Documentation/PHASE-9.md.
+    evaluate: liveCheck(
+      (status) =>
+        status.healthz?.database === "ok" &&
+        (status.openApiPaths?.has("/api/v1/pipeline/run") ?? false),
+    ),
   },
   {
     id: 10,

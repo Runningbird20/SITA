@@ -1,47 +1,6 @@
-import pytest
-from fastapi.testclient import TestClient
-from sqlalchemy import create_engine, event, select
-from sqlalchemy.orm import sessionmaker
-from sqlalchemy.pool import StaticPool
+from sqlalchemy import select
 
-from app.db.session import get_db
-from app.main import app
-from app.models import Base
 from app.models.event import SecurityEvent
-
-
-@pytest.fixture
-def client():
-    # StaticPool: without it, each new connection to ":memory:" gets its own
-    # fresh (tableless) database — the request thread would never see the
-    # tables created below.
-    engine = create_engine(
-        "sqlite:///:memory:",
-        connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
-    )
-
-    @event.listens_for(engine, "connect")
-    def _enable_fk(dbapi_connection, _):
-        cursor = dbapi_connection.cursor()
-        cursor.execute("PRAGMA foreign_keys=ON")
-        cursor.close()
-
-    Base.metadata.create_all(engine)
-    TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-
-    def _override_get_db():
-        db = TestingSessionLocal()
-        try:
-            yield db
-        finally:
-            db.close()
-
-    app.dependency_overrides[get_db] = _override_get_db
-    with TestClient(app) as test_client:
-        yield test_client, TestingSessionLocal
-    app.dependency_overrides.clear()
-    engine.dispose()
 
 
 class TestIngestEventsEndpoint:
@@ -100,3 +59,88 @@ class TestIngestEventsEndpoint:
         test_client, _ = client
         response = test_client.post("/api/v1/events/not-a-real-source", json={})
         assert response.status_code == 422
+
+
+class TestListAndGetEvents:
+    def _seed(self, test_client):
+        test_client.post(
+            "/api/v1/events/auth",
+            json={
+                "timestamp": "2026-01-15T03:10:00Z",
+                "host": "web01.internal",
+                "event_result": "failure",
+                "username": "root",
+                "source_ip": "203.0.113.7",
+                "auth_method": "password",
+            },
+        )
+        test_client.post(
+            "/api/v1/events/web",
+            json={
+                "timestamp": "2026-01-15T07:00:01Z",
+                "host": "web01.internal",
+                "method": "GET",
+                "path": "/",
+                "status_code": 200,
+                "source_ip": "10.0.0.1",
+            },
+        )
+
+    def test_list_returns_paginated_envelope(self, client):
+        test_client, _ = client
+        self._seed(test_client)
+
+        response = test_client.get("/api/v1/events")
+        assert response.status_code == 200
+        body = response.json()
+        assert body["total"] == 2
+        assert body["limit"] == 50
+        assert body["offset"] == 0
+        assert len(body["items"]) == 2
+
+    def test_filter_by_source_type(self, client):
+        test_client, _ = client
+        self._seed(test_client)
+
+        response = test_client.get("/api/v1/events", params={"source_type": "auth"})
+        assert response.status_code == 200
+        body = response.json()
+        assert body["total"] == 1
+        assert body["items"][0]["source_type"] == "auth"
+
+    def test_pagination_limit(self, client):
+        test_client, _ = client
+        self._seed(test_client)
+
+        response = test_client.get("/api/v1/events", params={"limit": 1})
+        body = response.json()
+        assert body["total"] == 2
+        assert len(body["items"]) == 1
+
+    def test_get_by_id(self, client):
+        test_client, _ = client
+        self._seed(test_client)
+        event_id = test_client.get("/api/v1/events").json()["items"][0]["id"]
+
+        response = test_client.get(f"/api/v1/events/{event_id}")
+        assert response.status_code == 200
+        assert response.json()["id"] == event_id
+
+    def test_get_missing_returns_structured_404(self, client):
+        test_client, _ = client
+        response = test_client.get("/api/v1/events/00000000-0000-0000-0000-000000000000")
+        assert response.status_code == 404
+        body = response.json()
+        assert body["error"]["code"] == "not_found"
+
+    def test_invalid_sort_field_returns_422(self, client):
+        test_client, _ = client
+        response = test_client.get("/api/v1/events", params={"sort": "not_a_field"})
+        assert response.status_code == 422
+        assert response.json()["error"]["code"] == "invalid_query_parameter"
+
+    def test_invalid_limit_returns_structured_422(self, client):
+        test_client, _ = client
+        response = test_client.get("/api/v1/events", params={"limit": 0})
+        assert response.status_code == 422
+        assert response.json()["error"]["code"] == "validation_error"

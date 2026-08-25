@@ -677,7 +677,7 @@ Everything above is implemented and verified, matching the specification exactly
 
 Verified against both SQLite and a live Postgres container — `severity_factors` (JSONB) and the `alert_event` junction both confirmed correct via direct `psql` inspection, not just application-level assertions.
 
-One deliberate, documented gap: Phase 3 has no REST endpoint (see "Execution Pipeline & CLI" above), so it has no live-checkable HTTP surface. The frontend build-status dashboard (see [FRONTEND.md](FRONTEND.md)) shows it as a static yellow "Implemented" — distinct from the live-verified green "Working" used for Phases 0–2 — asserted from this phase's own test suite and report rather than checked at runtime, since there's nothing to check yet. It will switch to a live "Working" check once Phase 9 exposes alerts over the API.
+One deliberate, documented gap at the time this section was written: Phase 3 had no REST endpoint (see "Execution Pipeline & CLI" above), so it had no live-checkable HTTP surface, and the frontend dashboard showed it as a static "Implemented" asserted from this phase's own test suite rather than checked at runtime. **Update (Phase 9):** live now — `GET /api/v1/detections` gives the dashboard a real surface to check; see [DEF.md § Phase 9](#phase-9-rest-api).
 
 See [Documentation/PHASE-3.md](PHASE-3.md) for the full narrative and `TODO.md` Phase 3 for the itemized checklist.
 
@@ -789,7 +789,7 @@ Everything above is implemented and verified, matching the specification exactly
 
 Verified against both SQLite and a live Postgres container — dedup, `event_ioc`/`alert_ioc` junction population, and confidence values all confirmed correct via direct `psql` inspection.
 
-Same deliberate gap as Phase 3: no REST endpoint (Phase 9's job), so the frontend dashboard shows Phase 4 as a static yellow "Implemented," not a live-checked "Working."
+Same deliberate gap as Phase 3, at the time this section was written: no REST endpoint, so the frontend dashboard showed Phase 4 as a static "Implemented," not a live-checked "Working." **Update (Phase 9):** live now, via `GET /api/v1/iocs`.
 
 LLM-assisted extraction (`[STRETCH]` in `TODO.md`) was not implemented in this pass — see `TODO.md` Phase 4 for what remains optional.
 
@@ -922,7 +922,7 @@ Everything above is implemented and verified, matching the specification exactly
 
 Verified against both SQLite and a live Postgres container — the scenario's 4 alerts (`ssh_brute_force`, `suspicious_auth_pattern`, `port_scanning`, `suspicious_powershell`) correctly land in one incident titled `"SSH Brute Force → Suspicious Authentication Pattern → Port Scanning → Suspicious PowerShell Activity"`, while the unrelated standalone `auth/brute_force.jsonl` alert and the unrelated standalone `network/port_scan.jsonl` alert (same target host as the scenario, but ~2.7 hours later — a genuine near-miss, not a trivial case) both correctly form their own separate incidents.
 
-Same deliberate gap as Phase 3/4: no REST endpoint (Phase 9's job), so the frontend dashboard shows Phase 5 as a static yellow "Implemented," not a live-checked "Working."
+Same deliberate gap as Phase 3/4, at the time this section was written: no REST endpoint, so the frontend dashboard showed Phase 5 as a static "Implemented," not a live-checked "Working." **Update (Phase 9):** live now, via `GET /api/v1/incidents`.
 
 See [Documentation/PHASE-5.md](PHASE-5.md) for the full narrative and `TODO.md` Phase 5 for the itemized checklist.
 
@@ -1134,7 +1134,7 @@ Everything above is implemented and verified, matching the specification exactly
 
 Verified against a live Postgres container: seeded a real brute-force event burst through `run_detection`/`run_correlation`, ran `run_triage` with a `MockProvider` returning valid completions for every task, and confirmed (inside a rolled-back transaction, so nothing was left in the dev database) all 6 `AnalysisResult` rows persisted with `parsed_output` round-tripping through `JSONB` as a `dict`, 2 `Recommendation` rows from `investigation_steps`, and 1 `AlertMitreMapping` row from `mitre_suggestion` once a matching `MITRETechnique` row existed.
 
-Same deliberate gap as Phase 3–6: no REST endpoint (Phase 9's job), so the frontend dashboard shows Phase 7 as a static yellow "Implemented," not a live-checked "Working."
+Same deliberate gap as Phase 3–6, at the time this section was written: no REST endpoint, so the frontend dashboard showed Phase 7 as a static "Implemented," not a live-checked "Working." **Update (Phase 9):** live now, via `GET /api/v1/analysis-results`.
 
 See [Documentation/PHASE-7.md](PHASE-7.md) for the full narrative and `TODO.md` Phase 7 for the itemized checklist.
 
@@ -1247,6 +1247,120 @@ Everything above is implemented and verified, matching the specification exactly
 
 Verified against a live Postgres container (run from the host via `uv run`, `DATABASE_URL` pointed at the docker-compose Postgres's published `127.0.0.1:5432` — the same convention `app.ingestion.cli` already uses, since the backend container only bind-mounts `backend/app`, not the repo-root `data/` directory the loader and ingestion CLI both read from): `load_techniques` created all 6 rows, `run_mitre_mapping` linked every rule's `Detection` and created real `AlertMitreMapping(source='rule')` rows against a genuine detection-pipeline-produced `Alert`, and the same unmodified Phase 5 scoring function returned a nonzero `mitre_score` (`0.1`, i.e. the full `mitre_weight`) against that data — confirmed inside a rolled-back transaction, so nothing was left in the dev database.
 
-Same deliberate gap as Phase 3–7: no REST endpoint (Phase 9's job), so the frontend dashboard shows Phase 8 as a static yellow "Implemented," not a live-checked "Working."
+Same deliberate gap as Phase 3–7, at the time this section was written: no REST endpoint, so the frontend dashboard showed Phase 8 as a static "Implemented," not a live-checked "Working." **Update (Phase 9):** live now, via `GET /api/v1/mitre-techniques`.
 
 See [Documentation/PHASE-8.md](PHASE-8.md) for the full narrative and `TODO.md` Phase 8 for the itemized checklist.
+
+---
+
+# Phase 9: REST API
+
+## Scope
+
+Every `*Read` schema this project needed already exists — Phase 1 defined them alongside the models, and `app/schemas/__init__.py` has said "Create/Update variants are added in Phase 9 alongside the endpoints that actually need them" since it was written. Phase 9 is the wiring: read-only list/get endpoints over all 8 domain object types, three shared cross-cutting concerns (pagination, filtering, sorting), consistent error handling, and one write endpoint genuinely new to this phase — a pipeline-trigger for demos. No resource in this phase gets Create/Update/Delete: every task in TODO.md's list is phrased "list/filter/get," and nothing downstream yet needs to mutate an `Alert`/`Incident`/etc. through the API (Phase 10's analyst-facing status changes are the first real consumer, and get their own endpoints then, not spec'd ahead of need here).
+
+## Pagination
+
+Every list endpoint returns the same envelope, offset-based (not cursor-based — there's no infinite-scroll consumer yet, and offset pagination is the simpler contract for the tabular list views Phase 10 will build):
+
+```python
+class Page(BaseModel, Generic[T]):
+    items: list[T]
+    total: int      # total matching rows, ignoring limit/offset — for "page X of Y" UI
+    limit: int
+    offset: int
+```
+
+Query params: `limit` (default 50, max 200) and `offset` (default 0), both validated by FastAPI's own `Query(ge=..., le=...)` bounds — an out-of-range value is a plain 422 via the shared validation-error handler below, not custom logic.
+
+## Filtering
+
+Query params per resource, typed directly as the relevant enum/primitive so FastAPI/Pydantic validates them before a handler ever runs (an invalid `severity=extreme` is a 422 naming the bad value, not a 500 or a silently-empty result set):
+
+| Resource | Filters |
+|---|---|
+| `SecurityEvent` | `source_type`, `since`, `until` (on `occurred_at`) |
+| `Alert` | `severity`, `status`, `rule_key` (joins `Detection.rule_key`), `incident_id` |
+| `Incident` | `status`, `severity` |
+| `IOC` | `ioc_type`, `validation_status`, `min_confidence` |
+| `Detection` | `category`, `enabled` |
+| `AnalysisResult` | exactly one of `incident_id`/`alert_id` (**required** — "scoped to an incident/alert" per TODO.md; both-or-neither is a 422), optional `task_type` |
+| `Recommendation` | `incident_id`, `alert_id`, `status`, `source`, `priority` |
+| `MITRETechnique` | `tactic` |
+
+## Sorting
+
+A `sort` query param per list endpoint: a bare field name (ascending) or `-field` (descending), validated against a small explicit whitelist per resource — never every column, and never raw user input reaching a SQL `ORDER BY` unchecked. An unlisted field is a 422 naming the allowed set. `Severity`/enum-typed fields are deliberately excluded from every whitelist: they're stored as plain `VARCHAR`, so a naive SQL sort would order alphabetically (`critical` < `high` < `low` < `medium`) rather than by actual severity rank — building a `CASE`-based severity ordering for a feature nothing has asked for yet would be exactly the ahead-of-need work this project avoids, so severity sorting is left undone rather than silently wrong.
+
+| Resource | Sortable fields | Default |
+|---|---|---|
+| `SecurityEvent` | `occurred_at`, `ingested_at`, `created_at` | `-occurred_at` |
+| `Alert` | `created_at`, `first_event_at`, `last_event_at`, `confidence` | `-first_event_at` |
+| `Incident` | `created_at`, `first_activity_at`, `last_activity_at` | `-last_activity_at` |
+| `IOC` | `first_seen`, `last_seen`, `confidence`, `created_at` | `-last_seen` |
+| `Detection` | `name`, `created_at` | `name` |
+| `AnalysisResult` | `created_at` | `-created_at` |
+| `Recommendation` | `created_at`, `updated_at` | `-created_at` |
+| `MITRETechnique` | `technique_id`, `name` | `technique_id` |
+
+## Error envelope
+
+Every non-2xx JSON response — a custom 404/422, or FastAPI's own default validation failure — shares one shape, via exception handlers registered in `app/main.py` rather than per-endpoint try/except:
+
+```json
+{"error": {"code": "not_found", "message": "Alert 3fa8...  not found", "details": null}}
+```
+
+`app/core/exceptions.py` defines two application exceptions: `NotFoundError` (→ 404) and `InvalidQueryParameterError` (→ 422, used for the sort-whitelist and the `AnalysisResult` incident_id/alert_id-exactly-one-of check). FastAPI's built-in `RequestValidationError` (malformed query params, bad path-param types) is reshaped into the same envelope by an override handler, so a client never has to branch on whether a given 422 came from custom or built-in validation.
+
+## Endpoint reference
+
+All under `api_v1_prefix` (`/api/v1`, from Phase 0's `Settings`).
+
+| Method & path | Response | Notes |
+|---|---|---|
+| `GET /events` | `Page[SecurityEventRead]` | |
+| `GET /events/{id}` | `SecurityEventRead` | |
+| `POST /events/{source_type}` | `IngestionReport` | Phase 2, unchanged |
+| `GET /alerts` | `Page[AlertRead]` | |
+| `GET /alerts/{id}` | `AlertRead` | |
+| `GET /alerts/{id}/mitre-techniques` | `list[AlertMitreMappingRead]` | that alert's own rule/LLM technique mappings |
+| `GET /incidents` | `Page[IncidentRead]` | |
+| `GET /incidents/{id}` | `IncidentDetail` | `IncidentRead` + nested `alerts`, deduplicated `iocs` (rolled up across alerts), `analysis_results`, `recommendations`, `mitre_techniques` (Phase 8's rollup) |
+| `GET /incidents/{id}/mitre-techniques` | `list[IncidentTechniqueEntryOut]` | standalone, same data as the nested field above — for a caller that only wants this |
+| `GET /iocs` | `Page[IOCRead]` | |
+| `GET /iocs/{id}` | `IOCRead` | |
+| `GET /detections` | `Page[DetectionRead]` | |
+| `GET /detections/{id}` | `DetectionDetail` | `DetectionRead` + nested `mitre_techniques` |
+| `GET /analysis-results` | `Page[AnalysisResultRead]` | |
+| `GET /analysis-results/{id}` | `AnalysisResultRead` | |
+| `GET /recommendations` | `Page[RecommendationRead]` | |
+| `GET /recommendations/{id}` | `RecommendationRead` | |
+| `GET /mitre-techniques` | `Page[MITRETechniqueRead]` | |
+| `GET /mitre-techniques/{id}` | `MITRETechniqueRead` | |
+| `POST /pipeline/run` | `PipelineRunReport` | see below |
+
+Every `{id}` path param is the resource's internal UUID (`GET /mitre-techniques/{id}`, not `.../T1110.001`) — consistent with every other resource, even though a human would more often think in `technique_id` strings; `technique_id` is still filterable/visible via the list endpoint and the response body.
+
+## The pipeline-trigger endpoint
+
+`POST /api/v1/pipeline/run`, body `{"since": "<ISO 8601>" | null}` (optional) — runs the full deterministic-then-AI pipeline in the same dependency order every CLI docstring since Phase 8 has documented (detection → IOC extraction → MITRE mapping → correlation → triage), against whichever `LLMProvider` `Settings.llm_provider` configures, and returns one `PipelineRunReport` bundling each stage's own existing report schema (`DetectionRunReport`, `IOCExtractionReport`, `MitreMappingReport`, `CorrelationRunReport`, `TriageRunReport`) unchanged. Explicitly "for demo purposes" per TODO.md — synchronous (no job queue/background task/polling status endpoint; this project's synthetic datasets run the whole chain in well under a second, so there's no latency problem a background-job abstraction would actually solve), and not authenticated (matches every other endpoint pre-Phase-14). Does **not** run ingestion itself — "ingest → detect → correlate → triage" in TODO.md's phrasing means the already-existing `POST /events/{source_type}` covers ingestion; this endpoint starts from whatever `SecurityEvent` rows already exist, matching every pipeline CLI's own "since limits new work, not historical context" convention.
+
+## Phase 9 Status: implemented
+
+Everything above is implemented and verified, matching the specification exactly:
+
+- Pagination: `backend/app/schemas/pagination.py` (`Page[T]`, PEP 695 generic syntax)
+- Shared dependencies: `backend/app/api/deps.py` (`pagination_params`, `apply_sort`)
+- Errors: `backend/app/core/exceptions.py` (`NotFoundError`, `InvalidQueryParameterError`); handlers registered in `backend/app/main.py`, including an override for FastAPI's built-in `RequestValidationError` so every 4xx shares one envelope
+- Routers: `backend/app/api/{events,alerts,incidents,iocs,detections,analysis_results,recommendations,mitre,pipeline}.py`
+- New/extended schemas: `IncidentDetail` (`schemas/incident.py`), `DetectionDetail` (`schemas/detection.py`), `AlertMitreMappingRead`/`TechniqueEvidenceOut`/`IncidentTechniqueEntryOut` (`schemas/mitre.py`), `PipelineRunRequest`/`PipelineRunReport` (`schemas/pipeline_run.py`)
+- Tags/OpenAPI metadata: `openapi_tags` in `app/main.py`, one tag per resource plus `pipeline`/`health`, every endpoint carrying a docstring FastAPI surfaces as its description
+- Tests: `backend/tests/integration/test_{events,alerts,incidents,iocs,detections,analysis_results,recommendations,mitre,pipeline}_api.py` (51 cases total, 48 net-new — pagination envelope shape, every documented filter, sort whitelisting including the 422 for an unlisted field, the structured 404/422 error envelopes for both custom and FastAPI-native validation failures, the `AnalysisResult` exactly-one-of-scope validation, the nested `IncidentDetail` payload against a real fully-linked object graph, and the pipeline-trigger endpoint's report shape and `since` handling) plus a shared `tests/integration/conftest.py` (`client` fixture, `seed_full_incident` helper) extracted from the pre-existing `test_events_api.py` so every new suite reuses it rather than re-deriving its own DB/TestClient wiring
+- `ruff check`/`ruff format --check` pass clean. Full backend suite: 310 passed, 1 skipped (Phase 6's live-Ollama test), 0 failed.
+
+Verified against the live docker-compose stack (real Postgres, `uvicorn --reload` picking up the bind-mounted `backend/app` automatically): every list/get endpoint, the nested `IncidentDetail` payload (JSONB `correlation_method` round-tripping correctly, deduplicated `iocs` across a real alert graph), the `rule_key` join-based filter on `/alerts`, and both the custom and FastAPI-native error envelopes were exercised over real HTTP against real persisted data. `POST /pipeline/run` was deliberately **not** exercised over HTTP against the live stack — unlike the read endpoints, it commits, and there was no way to roll that back through a live server the way Phase 7/8's verification scripts rolled back a direct Postgres transaction; its correctness instead rests on (a) the SQLite integration tests exercising the exact same request/response/orchestration code, and (b) every pipeline stage it calls (`run_detection`, `run_ioc_extraction`, `run_mitre_mapping`, `run_correlation`, `run_triage`) already having its own dedicated live-Postgres verification in Phases 3–8.
+
+**One retroactive update this phase makes to five earlier phases**: Phase 3/4/5/7/8 each documented, in their own sections above and in their `PHASE-N.md` reports, that the frontend dashboard would show a static "Implemented" until Phase 9 gave them a live-checkable surface. That promise is now kept — `frontend/src/data/phases.ts` upgrades all five from `staticImplemented` to `liveCheck`, each checking that its own now-real endpoint (`/api/v1/detections`, `/api/v1/iocs`, `/api/v1/incidents`, `/api/v1/analysis-results`, `/api/v1/mitre-techniques`) is present in the live `/openapi.json` — the same shallow-but-honest pattern Phase 2 established (confirms the route is genuinely mounted, not that any given resource has data yet). Phase 6 deliberately stays static: the `LLMProvider` abstraction has no domain-object identity of its own for a REST resource to expose — `AnalysisResult` (Phase 7's output, not Phase 6's) is what Phase 9 can check.
+
+See [Documentation/PHASE-9.md](PHASE-9.md) for the full narrative and `TODO.md` Phase 9 for the itemized checklist.
