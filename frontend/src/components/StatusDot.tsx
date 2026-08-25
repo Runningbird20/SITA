@@ -3,6 +3,7 @@ import "./StatusDot.css";
 
 const LABELS: Record<PhaseStatusValue, string> = {
   implemented: "Working",
+  implemented_static: "Implemented",
   not_implemented: "Not implemented",
   broken: "Broken",
   checking: "Checking…",

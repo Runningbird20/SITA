@@ -17,7 +17,8 @@
   background: var(--color-gray);
 }
 
-.status-dot-wrap[data-status="implemented"] .status-dot {
+.status-dot-wrap[data-status="implemented"] .status-dot,
+.status-dot-wrap[data-status="implemented_static"] .status-dot {
   background: var(--color-green);
   box-shadow: 0 0 6px 0 var(--color-green-glow);
 }
@@ -36,7 +37,8 @@
   color: var(--color-text-dim);
 }
 
-.status-dot-wrap[data-status="implemented"] .status-dot-label {
+.status-dot-wrap[data-status="implemented"] .status-dot-label,
+.status-dot-wrap[data-status="implemented_static"] .status-dot-label {
   color: var(--color-green);
 }
 

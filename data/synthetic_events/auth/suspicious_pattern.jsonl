@@ -1,0 +1,2 @@
+{"timestamp": "2026-01-16T02:15:00Z", "host": "web01.internal", "event_result": "success", "username": "ops-admin", "source_ip": "10.0.0.9", "auth_method": "mfa", "service": "sshd"}
+{"timestamp": "2026-01-16T10:00:00Z", "host": "web01.internal", "event_result": "success", "username": "jdoe", "source_ip": "198.51.100.201", "auth_method": "publickey", "service": "sshd"}

@@ -147,21 +147,21 @@ SITA/
 
 **Tasks**
 
-- [ ] Design the rule engine interface (a `DetectionRule` base with `evaluate(events) -> Alert | None`, or windowed/stateful variant)
-- [ ] Implement rule: SSH brute force (repeated auth failures from one source against one target within a window)
-- [ ] Implement rule: password spraying (many usernames, few attempts each, one source, within a window)
-- [ ] Implement rule: suspicious authentication patterns (e.g., unusual hour, new source IP for a known user)
-- [ ] Implement rule: port scanning (one source touching many destination ports/hosts in a short window)
-- [ ] Implement rule: suspicious PowerShell activity (encoded commands, download cradles, suspicious flags in command-line events)
-- [ ] Implement rule: impossible travel (same user authenticating from geographically implausible locations within an implausible time delta)
-- [ ] Implement rule: repeated authentication failures (generalized threshold rule, distinct from brute force's single-source/single-target framing)
-- [ ] Each rule produces a structured `Alert` with: rule ID, matched events, severity, confidence, human-readable rationale
-- [ ] Implement deterministic severity scoring (e.g., weighted factors: rule criticality, asset sensitivity, volume/frequency) — kept separate from any LLM severity *explanation*
-- [ ] Build a rule execution pipeline that runs on ingestion (or on-demand) and persists resulting alerts
-- [ ] `[HIGH VALUE]` Write a test suite with labeled synthetic scenarios per rule (true positives + true negatives) to measure precision/recall — feeds Phase 12
-- [ ] Document each rule's logic, thresholds, and rationale in `docs/architecture.md` or a dedicated `docs/detection_rules.md`
+- [x] Design the rule engine interface (a `DetectionRule` base with `evaluate(events) -> Alert | None`, or windowed/stateful variant) — `backend/app/detection/base.py`: `DetectionRule.evaluate(db, events, config) -> list[RuleFinding]`, defined in [DEF.md § Phase 3](Documentation/DEF.md#rule-engine-interface) before implementation
+- [x] Implement rule: SSH brute force (repeated auth failures from one source against one target within a window) — `backend/app/detection/ssh_brute_force.py`; escalates to critical if a same-group success follows
+- [x] Implement rule: password spraying (many usernames, few attempts each, one source, within a window) — `backend/app/detection/password_spraying.py`
+- [x] Implement rule: suspicious authentication patterns (e.g., unusual hour, new source IP for a known user) — `backend/app/detection/suspicious_auth_pattern.py`; two independent sub-checks, the new-IP check reads full auth history via `db`
+- [x] Implement rule: port scanning (one source touching many destination ports/hosts in a short window) — `backend/app/detection/port_scanning.py`
+- [x] Implement rule: suspicious PowerShell activity (encoded commands, download cradles, suspicious flags in command-line events) — `backend/app/detection/suspicious_powershell.py`; confidence scales with matched indicator categories
+- [x] Implement rule: impossible travel (same user authenticating from geographically implausible locations within an implausible time delta) — `backend/app/detection/impossible_travel.py` + `geoip.py`. **Known limitation**: the GeoIP resolver is a small static stub covering only this project's own synthetic-dataset IPs, not a real geolocation database — see [[geoip-resolver-stub]] in Architecture Decisions below
+- [x] Implement rule: repeated authentication failures (generalized threshold rule, distinct from brute force's single-source/single-target framing) — `backend/app/detection/repeated_auth_failures.py`; groups by destination host only, requires ≥3 distinct source IPs so it never re-detects what `ssh_brute_force` already catches
+- [x] Each rule produces a structured `Alert` with: rule ID, matched events, severity, confidence, human-readable rationale — verified with real, readable rationale text against actual dataset data (see PHASE-3.md)
+- [x] Implement deterministic severity scoring (e.g., weighted factors: rule criticality, asset sensitivity, volume/frequency) — kept separate from any LLM severity *explanation* — `score_severity()` in `base.py`; formula in [DEF.md § Phase 3](Documentation/DEF.md#deterministic-severity-scoring)
+- [x] Build a rule execution pipeline that runs on ingestion (or on-demand) and persists resulting alerts — on-demand: `backend/app/detection/pipeline.py` (`run_detection`) + CLI (`backend/app/detection/cli.py`). No REST trigger endpoint added — deliberately deferred to Phase 9, which owns the general API surface. **Known limitation**: not idempotent — re-running over an already-processed range creates duplicate alerts; see [[detection-run-idempotency]] below
+- [x] `[HIGH VALUE]` Write a test suite with labeled synthetic scenarios per rule (true positives + true negatives) to measure precision/recall — feeds Phase 12 — 24 rule-level unit tests (`test_detection_rules.py`) plus integration tests running the real pipeline against every real dataset file (`test_detection_against_datasets.py`): every attack-pattern file triggers its intended rule, every benign file triggers zero alerts
+- [x] Document each rule's logic, thresholds, and rationale in `docs/architecture.md` or a dedicated `docs/detection_rules.md` — full rule table in [DEF.md § Phase 3](Documentation/DEF.md#the-7-rules); `docs/architecture.md` links to it rather than duplicating
 
-**Definition of Done:** All 7 rules run against the Phase 2 synthetic datasets and produce correctly-labeled alerts with documented false-positive/false-negative behavior on the test fixtures.
+**Definition of Done:** All 7 rules run against the Phase 2 synthetic datasets and produce correctly-labeled alerts with documented false-positive/false-negative behavior on the test fixtures. — met; verified via `uv run python -m app.detection.cli` against every real dataset (12 alerts across all 7 rule types, zero false positives on any benign file) and against a live Postgres container.
 
 ---
 
@@ -447,6 +447,8 @@ These need explicit decisions before or during the relevant phase — don't let 
 - **How AI confidence should be represented.** Needs a decision on whether LLM outputs carry a self-reported confidence (unreliable but simple), a derived confidence (e.g., based on schema-validation success, agreement with deterministic signals), or no numeric confidence at all (just clear "AI-generated, unverified" labeling). Leaning toward the latter two combined, not raw self-reported LLM confidence.
 - **How to evaluate AI-generated triage.** Unlike detection rules, LLM summaries/hypotheses don't have a clean precision/recall metric. Needs a decision: manual rubric-based scoring against the eval dataset (e.g., rate summaries 1–5 on accuracy/completeness), automated checks (does the summary mention the correct entities/IOCs present in the incident), or both. Document methodology alongside Phase 12.
 - **Authentication approach for the dashboard/API (Phase 14).** Needs a decision on scope — single shared local credential vs. simple user accounts — appropriate for a local-first demo project without over-engineering.
+- **`[[geoip-resolver-stub]]` Real GeoIP data source for `impossible_travel`.** Phase 3's `StaticGeoIPResolver` is a small hardcoded table covering only the IPs used in this project's own synthetic datasets — a deliberate stub, not a real geolocation capability, chosen specifically to avoid a paid/rate-limited external API. Needs a decision: bundle a free offline dataset (e.g., a trimmed MaxMind GeoLite2 snapshot) behind the same `GeoIPResolver` interface, or leave the stub in place and document the rule as demo-only until then.
+- **`[[detection-run-idempotency]]` Idempotent detection re-runs.** Phase 3's `run_detection()` does not deduplicate — re-running it over an already-processed time range creates duplicate `Alert` rows. Needs a decision on a dedup strategy (e.g., a fingerprint column on `Alert` derived from `detection_id` + sorted matched event IDs) versus relying entirely on callers scoping `since` correctly.
 
 ---
 

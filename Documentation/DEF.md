@@ -521,3 +521,162 @@ Everything above is implemented and verified, matching the specification exactly
 - Tests: `backend/tests/unit/test_ingestion_adapters.py`, `test_ingestion_service.py`, `test_ingestion_cli.py`, and `backend/tests/integration/test_events_api.py` + `test_synthetic_datasets.py` (the latter loads and validates every real dataset file, not synthetic fixtures written just for the test)
 
 See [Documentation/PHASE-2.md](PHASE-2.md) for the full narrative — what was built, how it connects, and why each decision was made — and `TODO.md` Phase 2 for the itemized checklist.
+
+---
+
+# Phase 3: Detection Engine
+
+## Scope
+
+Deterministic rules that read `SecurityEvent` rows (Phase 2's output) and produce `Alert` rows (Phase 1's schema) — the system's ground truth, with no LLM involved anywhere in this phase. This section defines the rule engine interface, the severity-scoring formula, the contract for all 7 required rules, the (deliberately stubbed) geolocation dependency the impossible-travel rule needs, and the execution pipeline/CLI contract — all written before the rule code that implements them.
+
+## Rule Engine Interface
+
+```python
+@dataclass
+class RuleFinding:
+    matched_event_ids: list[uuid.UUID]
+    severity: Severity
+    confidence: float          # 0.0–1.0, this rule's own confidence in this specific firing
+    rationale: str              # human-readable, cites the actual matched values
+    severity_factors: dict       # structured breakdown feeding the severity score (see below)
+    first_event_at: datetime
+    last_event_at: datetime
+
+class DetectionRule(ABC):
+    rule_key: ClassVar[str]                     # stable identifier, matches Detection.rule_key
+    name: ClassVar[str]
+    description: ClassVar[str]
+    category: ClassVar[DetectionCategory]
+    default_severity: ClassVar[Severity]         # baseline before volume-based adjustment
+    source_types: ClassVar[tuple[SourceType, ...]]  # which SecurityEvent.source_type values this rule needs
+    default_config: ClassVar[dict]               # tunables (thresholds, window sizes) — mirrors Detection.config
+
+    def evaluate(self, db: Session, events: Sequence[SecurityEvent], config: dict) -> list[RuleFinding]:
+        """`events` is every persisted SecurityEvent whose source_type is in
+        `source_types` (and, if the pipeline was given a `since` cutoff, whose
+        occurred_at >= since) — already loaded, ordered by occurred_at. `config`
+        is this rule's Detection.config from the database, falling back to
+        default_config if unset. `db` is available for rules that need
+        historical context beyond the candidate window (see suspicious auth
+        patterns and impossible travel below) — evaluate() may issue its own
+        additional read queries.
+        """
+```
+
+Each `RuleFinding` becomes exactly one `Alert` row: `detection_id` from the rule's `Detection` row (looked up by `rule_key`), `severity`/`confidence`/`rationale`/`severity_factors`/`first_event_at`/`last_event_at` copied directly, and `matched_event_ids` linked via the `alert_event` junction. `Alert.incident_id` is left `NULL` (Phase 5 sets it) and `Alert.status` defaults to `new`.
+
+## Deterministic Severity Scoring
+
+A rule's `default_severity` is a *baseline*, not the final answer — the actual severity is computed from a small weighted formula so two firings of the same rule can land at different severities depending on how far over threshold they are:
+
+```
+rule_weight        = { low: 0.25, medium: 0.5, high: 0.75, critical: 1.0 }[default_severity]
+volume_ratio        = matched_count / config_threshold        (how many multiples over the minimum)
+volume_factor       = min(0.3, 0.05 * volume_ratio)             (capped bonus, never dominates the base weight)
+asset_sensitivity   = 0.0                                        (no asset-criticality data exists yet — reserved field, see Open Questions)
+score               = min(1.0, rule_weight + volume_factor + asset_sensitivity)
+
+severity =
+  critical  if score >= 0.90
+  high      if score >= 0.70
+  medium    if score >= 0.45
+  low       otherwise
+```
+
+`severity_factors` on every `Alert` stores `{rule_weight, volume_factor, asset_sensitivity, score}` — so the *deterministic* severity is fully reconstructable from the stored row, independent of any later Phase 7 LLM severity *explanation* (which explains this score in prose, but never computes it).
+
+## The 7 Rules
+
+| `rule_key` | Category | Source types | Grouping | Default config | Default severity |
+|---|---|---|---|---|---|
+| `ssh_brute_force` | authentication | `auth` | `(source_ip, dest_host)` among `event_result=failure` | `failure_threshold=10`, `window_seconds=300` | high (→ critical if a same-group success follows within `window_seconds`) |
+| `password_spraying` | authentication | `auth` | `source_ip` alone, across distinct usernames | `distinct_username_threshold=5`, `max_attempts_per_username=3`, `window_seconds=600` | high |
+| `suspicious_auth_pattern` | authentication | `auth` | per-event, with a DB history lookup | `off_hours_start=0`, `off_hours_end=5` (UTC) | medium |
+| `port_scanning` | network | `network` | `src_ip` alone, across distinct `dst_port` | `distinct_port_threshold=6`, `window_seconds=60` | medium |
+| `suspicious_powershell` | endpoint | `endpoint` | per-event, regex over `command_line` | indicator pattern list (below) | high |
+| `impossible_travel` | authentication | `auth` | `username`, consecutive successful logins | `max_plausible_speed_kmh=900` | high |
+| `repeated_auth_failures` | authentication | `auth` | `dest_host` alone, across distinct `source_ip` | `failure_threshold=20`, `distinct_source_ip_minimum=3`, `window_seconds=900` | medium |
+
+Notes on the two rules whose grouping is easy to confuse with `ssh_brute_force`:
+
+- **`password_spraying`** groups by source IP *only* (many usernames, few attempts each) — the opposite shape from `ssh_brute_force`, which groups by (source IP, target host) and expects *repeated* attempts against the *same* target.
+- **`repeated_auth_failures`** groups by destination host *only*, explicitly requiring failures from **at least 3 distinct source IPs** — this is what keeps it from just re-detecting the same thing `ssh_brute_force` already catches (a single noisy source); it exists to catch distributed/credential-stuffing-style noise that no single-source rule would cross threshold on.
+
+### `suspicious_auth_pattern` — two sub-checks
+
+1. **Off-hours login**: a successful auth whose `occurred_at` hour (UTC) falls within `[off_hours_start, off_hours_end]`.
+2. **New source IP for a known user**: a successful auth from `(username, source_ip)` where `username` has at least one *earlier* successful auth in the database from a *different* `source_ip` (i.e., not simply the user's first login ever — an actual IP change for an established user). This is the one rule beyond `impossible_travel` that reads history via `db` rather than only the candidate window.
+
+Both sub-checks produce independent, single-event `RuleFinding`s (an event can trigger one, both, or neither).
+
+### `suspicious_powershell` — indicator patterns
+
+Flags `endpoint` events where `process_name` contains `powershell` and `command_line` matches one or more of: encoded-command flags (`-enc`, `-encodedcommand`, `-e ` short form), hidden-window flags (`-w hidden`, `-windowstyle hidden`), execution-policy bypass (`-ep bypass`, `-executionpolicy bypass`), or download-cradle patterns (`downloadstring`, `downloadfile`, `iex`, `invoke-expression`, `net.webclient`, `invoke-webrequest`). Confidence scales with the number of distinct indicator categories matched (`0.5` base + `0.15` per additional category beyond the first, capped at `0.95`) — one matched flag is suspicious, several together are close to conclusive.
+
+### `impossible_travel` and the GeoIP dependency
+
+Real impossible-travel detection needs an IP → geographic location resolver. This project has no real GeoIP database or paid geolocation API (and won't add one as a required dependency, per the project's "no paid APIs" rule). The rule is implemented against a small interface instead:
+
+```python
+class GeoIPResolver(ABC):
+    def resolve(self, ip: str) -> GeoLocation | None: ...
+
+@dataclass
+class GeoLocation:
+    latitude: float
+    longitude: float
+    label: str   # human-readable region name, for the alert rationale
+```
+
+`StaticGeoIPResolver` is the only implementation for now: a small hardcoded table covering the IP addresses that actually appear in this project's synthetic datasets (internal `10.0.0.x` addresses resolve to a single "local office" location; specific external test IPs resolve to fictional-but-fixed distant regions). This is a **known, explicit stub** — see the `[[geoip-resolver-stub]]` entry in `TODO.md`'s Architecture Decisions / Open Questions — not a real geolocation capability. For two consecutive successful logins by the same user where both IPs resolve to a known location, the rule computes great-circle (haversine) distance and required travel speed; if speed exceeds `max_plausible_speed_kmh` and the locations differ, it fires. Logins from unresolvable IPs never trigger this rule (silently skipped, not treated as suspicious by omission).
+
+## Execution Pipeline & CLI
+
+```python
+def run_detection(db: Session, since: datetime | None = None) -> DetectionRunReport:
+    """Ensures the 7 Detection rows exist (idempotent upsert by rule_key),
+    then for each enabled rule: loads matching SecurityEvents (source_type
+    filter, optional occurred_at >= since), calls rule.evaluate(), and
+    persists one Alert per RuleFinding. Does not commit — caller-owned
+    transaction, same convention as Phase 2's ingest_records().
+    """
+
+class DetectionRunReport(BaseModel):
+    since: datetime | None
+    rules_run: int
+    alerts_created: int
+    alerts_by_rule: dict[str, int]
+```
+
+No REST endpoint is added in this phase — deliberately. Phase 9 owns the general REST API surface (including whatever trigger-the-pipeline endpoint TODO.md's Phase 9 task list already anticipates); adding one now would duplicate that later. The pipeline is invoked via a CLI (`uv run python -m app.detection.cli [--since ISO8601]`), matching Phase 2's ingestion CLI pattern, and via the plain `run_detection()` function directly from tests.
+
+**Known limitation, stated plainly**: `run_detection()` does not deduplicate — re-running it over a time range that was already processed creates duplicate `Alert` rows for the same underlying events. `since` lets a caller scope a run to only-new data, but avoiding overlap is the caller's responsibility. True idempotent re-runs (a fingerprint-based dedup) are deferred rather than solved with a rushed heuristic; tracked as `[[detection-run-idempotency]]` in `TODO.md`'s Architecture Decisions / Open Questions.
+
+## Dataset additions
+
+Four new files under `data/synthetic_events/auth/`, each built to cross exactly one rule's threshold and stay under every other rule's:
+
+- `password_spraying.jsonl` — one source IP, 6 distinct usernames, 1–2 attempts each, against one host, within minutes.
+- `suspicious_pattern.jsonl` — one off-hours (UTC 02:xx) successful login, plus a successful login from a new IP for a user with an established prior IP.
+- `impossible_travel.jsonl` — one username, two successful logins ~8 minutes apart from IPs mapped to distant `StaticGeoIPResolver` regions.
+- `distributed_failures.jsonl` — one destination host, failures from ≥3 distinct source IPs, aggregate count over threshold, no single source IP anywhere near the brute-force threshold on its own.
+
+## Phase 3 Status: implemented
+
+Everything above is implemented and verified, matching the specification exactly:
+
+- Rule engine: `backend/app/detection/base.py` (`DetectionRule`, `RuleFinding`, `score_severity`), `backend/app/detection/windowing.py` (shared sliding-window helper)
+- All 7 rules: `backend/app/detection/{ssh_brute_force,password_spraying,suspicious_auth_pattern,port_scanning,suspicious_powershell,impossible_travel,repeated_auth_failures}.py`
+- GeoIP stub: `backend/app/detection/geoip.py` (`GeoIPResolver`, `StaticGeoIPResolver`, haversine distance) — confirmed as a known limitation, not a real capability
+- Pipeline & seeding: `backend/app/detection/pipeline.py` (`run_detection`), `backend/app/detection/seed.py` (`ensure_detections_seeded`), `backend/app/detection/registry.py`
+- CLI: `backend/app/detection/cli.py` (`uv run python -m app.detection.cli [--since ...]`)
+- `DetectionRunReport` schema: `backend/app/schemas/detection_run.py`
+- 4 new synthetic datasets: `data/synthetic_events/auth/{password_spraying,suspicious_pattern,impossible_travel,distributed_failures}.jsonl`
+- Tests: `backend/tests/unit/test_detection_rules.py` (24 cases across all 7 rules, true-positive + boundary true-negative), `test_detection_seed.py`, `test_detection_pipeline.py`, `test_detection_cli.py`, and `backend/tests/integration/test_detection_against_datasets.py` (runs the real pipeline against the real checked-in datasets — every attack-pattern file triggers its intended rule, every benign file triggers nothing, the Phase 2 scenario triggers all 3 rules it touches)
+
+Verified against both SQLite and a live Postgres container — `severity_factors` (JSONB) and the `alert_event` junction both confirmed correct via direct `psql` inspection, not just application-level assertions.
+
+One deliberate, documented gap: Phase 3 has no REST endpoint (see "Execution Pipeline & CLI" above), so it has no live-checkable HTTP surface. The frontend build-status dashboard (see [FRONTEND.md](FRONTEND.md)) shows it as a static green "Implemented" — distinct from the live-verified green "Working" used for Phases 0–2 — asserted from this phase's own test suite and report rather than checked at runtime, since there's nothing to check yet. It will switch to a live "Working" check once Phase 9 exposes alerts over the API.
+
+See [Documentation/PHASE-3.md](PHASE-3.md) for the full narrative and `TODO.md` Phase 3 for the itemized checklist.

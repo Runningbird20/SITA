@@ -1,15 +1,22 @@
 import type { BackendStatus } from "../hooks/useBackendStatus";
 
-export type PhaseStatusValue = "implemented" | "not_implemented" | "broken" | "checking";
+export type PhaseStatusValue =
+  "implemented" | "implemented_static" | "not_implemented" | "broken" | "checking";
 
 export interface Phase {
   id: number;
   title: string;
   goal: string;
-  /** How this phase's live status is determined. Phases with no backend
-   * surface yet (nothing has been built) are statically "not_implemented" —
-   * there's nothing to check. Phases with real endpoints are evaluated
-   * against live backend responses, never hardcoded to "implemented".
+  /** How this phase's status is determined — three kinds:
+   *  - `liveCheck(...)`: a real HTTP surface exists; status is computed from
+   *    a live backend response (green "Working", or red "Broken" if the
+   *    check fails or the backend is unreachable). Always prefer this.
+   *  - `staticImplemented`: the phase is genuinely complete (its own
+   *    PHASE-N.md report says so, with real tests), but has no
+   *    live-checkable HTTP surface yet — green "Implemented", asserted
+   *    rather than verified at runtime. Only for phases that are actually
+   *    done, never for partial/in-progress work.
+   *  - `notImplemented`: nothing built yet — gray.
    */
   evaluate: (status: BackendStatus) => PhaseStatusValue;
 }
@@ -26,6 +33,8 @@ function liveCheck(isWorking: (status: BackendStatus) => boolean): Phase["evalua
 }
 
 const notImplemented: Phase["evaluate"] = () => "not_implemented";
+
+const staticImplemented: Phase["evaluate"] = () => "implemented_static";
 
 export const PHASES: Phase[] = [
   {
@@ -54,7 +63,11 @@ export const PHASES: Phase[] = [
     id: 3,
     title: "Detection Engine",
     goal: "Deterministic, explainable rules that turn normalized events into structured alerts.",
-    evaluate: notImplemented,
+    // No REST endpoint exists yet (deliberately deferred to Phase 9), so
+    // there's nothing to live-check — but the phase is genuinely complete:
+    // 7 rules, 99 passing tests, verified against SQLite and Postgres. See
+    // Documentation/PHASE-3.md.
+    evaluate: staticImplemented,
   },
   {
     id: 4,
