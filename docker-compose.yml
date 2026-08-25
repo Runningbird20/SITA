@@ -1,3 +1,12 @@
+# Every published port below is bound explicitly to 127.0.0.1, not left to
+# default to all interfaces. This is required, not just a hardening nicety:
+# on macOS, "localhost" resolves to ::1 (IPv6) before 127.0.0.1, and Docker
+# Desktop's IPv6 port-forwarding to a container process bound only to
+# 0.0.0.0 (IPv4) can silently accept the connection and then never service
+# it — the browser (or curl) hangs indefinitely instead of failing. Binding
+# the host side to 127.0.0.1 makes an IPv6 attempt fail immediately, so
+# browsers fall back to IPv4 (Happy Eyeballs) right away instead of hanging
+# — this is what "the frontend is stuck in a loading loop" turned out to be.
 services:
   postgres:
     image: postgres:16-alpine
@@ -7,7 +16,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-sita}
       POSTGRES_DB: ${POSTGRES_DB:-sita}
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -20,7 +29,7 @@ services:
     image: ollama/ollama:latest
     restart: unless-stopped
     ports:
-      - "11434:11434"
+      - "127.0.0.1:11434:11434"
     volumes:
       - ollama_data:/root/.ollama
     # No API key required — this is a fully local model runtime.
@@ -37,7 +46,7 @@ services:
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-sita}:${POSTGRES_PASSWORD:-sita}@postgres:5432/${POSTGRES_DB:-sita}
       OLLAMA_BASE_URL: http://ollama:11434
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     depends_on:
       postgres:
         condition: service_healthy
@@ -53,7 +62,7 @@ services:
     environment:
       VITE_API_BASE_URL: http://localhost:8000
     ports:
-      - "5173:5173"
+      - "127.0.0.1:5173:5173"
     depends_on:
       - backend
     volumes:
