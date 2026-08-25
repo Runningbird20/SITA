@@ -925,3 +925,140 @@ Verified against both SQLite and a live Postgres container — the scenario's 4 
 Same deliberate gap as Phase 3/4: no REST endpoint (Phase 9's job), so the frontend dashboard shows Phase 5 as a static green "Implemented," not a live-checked "Working."
 
 See [Documentation/PHASE-5.md](PHASE-5.md) for the full narrative and `TODO.md` Phase 5 for the itemized checklist.
+
+---
+
+# Phase 6: Local LLM Integration
+
+## Scope
+
+The `LLMProvider` abstraction itself — talking to a model, enforcing structured output, timeout/retry, and logging — with **no actual triage tasks yet**. Phase 7 writes the real prompts (incident summarization, severity explanation, etc.) and persists `AnalysisResult` rows; Phase 6 only has to prove the machinery works, using an illustrative example schema for its own tests, not any of Phase 7's real ones. This split matters: Phase 6's Definition of Done is about the *provider layer* being swappable and safe, not about any specific AI-generated content existing yet.
+
+## Interface: template method, not duplicated retry logic
+
+```python
+class LLMProvider(ABC):
+    name: ClassVar[str]   # "ollama" | "mock"
+
+    def generate(self, request: LLMRequest) -> LLMResponse:
+        """Concrete on the base class — retry loop, timeout handling,
+        structured-output validation, and logging are identical for every
+        provider, so they live here once. Never raises: every failure mode
+        (timeout, connection error, invalid output) becomes a returned
+        LLMResponse with validation_status reflecting what happened, not
+        an exception a caller has to remember to catch.
+        """
+        ...  # calls self._complete() in a bounded retry loop, then validates
+
+    @abstractmethod
+    def _complete(self, prompt: str, config: LLMConfig) -> RawCompletion:
+        """One *unretried* call to the underlying model. Raises
+        LLMTimeoutError or LLMProviderError on failure — the base class's
+        generate() is what decides whether to retry, not the subclass.
+        """
+```
+
+This is the same template-method shape Phase 3's `DetectionRule` used (`score_severity()` shared, `evaluate()` per-rule) — the part that's identical across every provider (retry/timeout/validation/logging) lives once on the base class; each provider implements only what's genuinely provider-specific (how to actually call the model).
+
+## Request/response types
+
+```python
+@dataclass
+class LLMConfig:
+    model: str
+    temperature: float = 0.2
+    max_tokens: int = 1024
+    timeout_seconds: float = 30.0
+    max_retries: int = 2
+    retry_backoff_seconds: float = 0.2
+
+@dataclass
+class LLMRequest:
+    task_type: AnalysisTaskType   # Phase 1's enum — reused, not redefined
+    prompt: str                    # already-rendered text; Phase 6 does not template
+    response_schema: type[BaseModel]
+    prompt_version: str
+
+@dataclass
+class RawCompletion:
+    text: str
+    prompt_tokens: int | None = None
+    completion_tokens: int | None = None
+
+@dataclass
+class LLMResponse:
+    provider: str
+    model: str
+    prompt_version: str
+    raw_output: str
+    parsed_output: dict | None
+    validation_status: AnalysisValidationStatus   # Phase 1's enum — reused
+    confidence: float | None
+    latency_ms: int
+    prompt_tokens: int | None
+    completion_tokens: int | None
+    error: str | None
+```
+
+`LLMResponse`'s fields map 1:1 onto `AnalysisResult`'s columns (minus `incident_id`/`alert_id`/`task_type`'s row-linkage, which only the caller — Phase 7 — knows). This isn't a coincidence: `AnalysisResult` was designed in Phase 1 specifically to record this call's outcome; Phase 6 produces the value, Phase 7 is what persists it.
+
+**`prompt_version` is a plain string tag, not a templating system.** Phase 6 doesn't build prompt template management — there are no real prompts yet to manage. `LLMRequest.prompt` is already-rendered text; whoever calls `generate()` (Phase 7, eventually) owns how it constructs that string and what version tag it assigns. Building a templating engine now, with nothing real to template, would be exactly the kind of ahead-of-need infrastructure this project avoids.
+
+## Structured output validation
+
+```python
+def validate_structured_output(
+    raw_text: str, schema: type[BaseModel]
+) -> tuple[dict | None, AnalysisValidationStatus, str | None]:
+    """Pydantic v2's model_validate_json raises ValidationError for both
+    malformed JSON and schema mismatches — one exception type covers both
+    failure modes this function needs to report as INVALID."""
+```
+
+Enforced via Ollama's JSON mode (`"format": "json"` on the request — see below) *and* independently re-validated against the caller's specific Pydantic schema, since Ollama's JSON mode guarantees syntactically valid JSON, not that it matches any particular shape.
+
+## Retry semantics
+
+`generate()`'s retry loop treats three failure kinds the same way — retry up to `max_retries` times, `retry_backoff_seconds` between attempts, then give up and return a failure `LLMResponse`:
+
+1. **Timeout** (`LLMTimeoutError`) → final response has `validation_status=timeout`.
+2. **Connection/HTTP failure** (`LLMProviderError`) → `validation_status=provider_error`.
+3. **Invalid output** (malformed JSON, or valid JSON that doesn't match `response_schema`) → `validation_status=invalid`. Retrying here is deliberate, not just for transient network issues: local LLMs are stochastic and don't always follow format instructions on the first try, so a second attempt at the *same* prompt genuinely has a chance of succeeding where the first didn't.
+
+## Confidence, derived not self-reported
+
+`TODO.md`'s "How AI confidence should be represented" open question already leaned toward "a derived confidence based on schema-validation success... not raw self-reported LLM confidence." Phase 6 resolves this concretely, using exactly the data `generate()` already has at the point it returns: confidence starts at `1.0` for a response validated on the first attempt, reduced by `0.15` per retry consumed, floored at `0.5` — never asking the model to rate its own certainty (which local models are notoriously unreliable at), only reflecting how much the *validation process itself* had to fight to get a usable answer. Only set when `validation_status=valid`; `None` for any failure response.
+
+## Providers
+
+- **`MockProvider`** — configurable with a canned `RawCompletion` (or a queue of them, for testing multi-attempt retry sequences), or configured to raise `LLMTimeoutError`/`LLMProviderError` to exercise failure paths. Zero network I/O, ever. Goes through the exact same `generate()` retry/validation/logging path as `OllamaProvider` — it's a stand-in for `_complete()` only, not a shortcut around the shared machinery. This is what makes "the app runs fully... with `MockProvider` and zero network calls" true by construction: nothing about the retry/validation/logging logic changes based on which provider is plugged in.
+- **`OllamaProvider`** — a single `httpx` (sync, matching this project's fully-synchronous architecture — no other module uses `asyncio`) POST to `{ollama_base_url}/api/generate` with `{"model", "prompt", "stream": false, "format": "json", "options": {"temperature", "num_predict"}}`, reading `response`/`prompt_eval_count`/`eval_count` from Ollama's JSON reply. Connection/timeout failures are translated into `LLMTimeoutError`/`LLMProviderError` for the shared retry loop to handle.
+- **`get_llm_provider()`** — a factory reading `Settings.llm_provider` (`"ollama"` | `"mock"`, already defined in Phase 0's config) and returning the matching instance. This one function is the entire "swapping providers requires no code changes elsewhere" mechanism the Definition of Done asks for — any caller uses `get_llm_provider()` and never imports a concrete provider class directly.
+
+## Recommended local model
+
+Per `[[recommended-local-model]]` in `TODO.md`'s Architecture Decisions: `Settings.ollama_model` already defaults to `llama3.1:8b-instruct-q4_K_M` (set in Phase 0) — a widely-available, JSON-mode-capable instruct model that runs on typical development hardware (8B parameters, quantized). This phase doesn't change that default; it's recorded here as the model `OllamaProvider` targets unless overridden.
+
+## Diagnostic CLI
+
+`uv run python -m app.llm.cli "some prompt"` — not a pipeline CLI like Phase 3–5's (there's no batch job to run), just a manual smoke-test: constructs a minimal request against whichever provider `get_llm_provider()` returns and prints the resulting `LLMResponse`. Exists so a real Ollama round-trip can be checked by hand without writing a throwaway script each time.
+
+## Phase 6 Status: implemented
+
+Everything above is implemented and verified, matching the specification exactly:
+
+- Exceptions: `backend/app/llm/exceptions.py` (`LLMTimeoutError`, `LLMProviderError`)
+- Dataclasses: `backend/app/llm/types.py` (`LLMConfig`, `LLMRequest`, `RawCompletion`, `LLMResponse`)
+- Structured-output validation: `backend/app/llm/validation.py` (`validate_structured_output`)
+- Provider abstraction: `backend/app/llm/base.py` (`LLMProvider`, concrete `generate()` with the bounded retry loop, confidence derivation, and structured logging — never raises)
+- `MockProvider`: `backend/app/llm/mock_provider.py` (queue, repeating-response, or forced-exception modes; zero network calls)
+- `OllamaProvider`: `backend/app/llm/ollama_provider.py` (sync `httpx` call to `/api/generate` with `"format": "json"`, matching the project's sync-everywhere architecture)
+- Registry: `backend/app/llm/registry.py` (`get_llm_provider()`, `default_llm_config()`, entirely config-driven — `llm_provider`, `ollama_model`, `llm_temperature`, `llm_max_tokens`, `llm_request_timeout_seconds`, `llm_max_retries`, `llm_retry_backoff_seconds` all read from `Settings`, none hardcoded)
+- Diagnostic CLI: `backend/app/llm/cli.py` (`uv run python -m app.llm.cli "prompt"`)
+- Tests: `backend/tests/unit/test_llm_{validation,mock_provider,generate,ollama_provider,registry,cli}.py` (33 cases — retry/backoff/confidence-floor math, every `AnalysisValidationStatus` outcome, "never raises" under every failure mode, config-driven provider selection) and `backend/tests/integration/test_llm_ollama_live.py`, an opportunistic test against a real running Ollama instance.
+
+**One refinement made during implementation**: the live-Ollama integration test's skip-check originally verified only that the Ollama *server* responded, not that the specific `settings.ollama_model` was actually pulled. Verifying against a real Ollama container — pulled with a small model (`qwen2.5:0.5b`) for hand-verification rather than the real default (`llama3.1:8b-instruct-q4_K_M`, never pulled in that container) — surfaced this: the test attempted a real call and failed with an HTTP 404 instead of skipping cleanly. Fixed by checking `GET /api/tags` and confirming the configured model is present before running, matching the test's own stated intent of never failing on a machine where Ollama is only partially set up. Both the CLI and the integration test were then confirmed to genuinely round-trip against the live container (`response: Paris` for "capital of France").
+
+This phase touches no database tables and required no Postgres verification — `LLMProvider` and its providers are pure in-memory/network components with zero persistence; wiring `LLMResponse` into the `AnalysisResult` table is Phase 7's job.
+
+Confirmed against the Definition of Done: the app runs fully with `MockProvider` and zero network calls (the real project default — see `test_current_default_settings_use_mock`), swapping to `OllamaProvider` requires no code changes elsewhere (only `LLM_PROVIDER=ollama` in config), and every response records `provider`/`model`/`prompt_version`/`latency_ms`.

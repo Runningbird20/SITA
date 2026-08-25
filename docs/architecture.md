@@ -101,6 +101,26 @@ resolver, standing in for a real CMDB. Run on-demand via
 `uv run python -m app.correlation.cli`, recommended after `app.ioc.cli` —
 no REST endpoint yet, same Phase-9 deferral as detection and IOC extraction.
 
+## LLM Integration
+
+`backend/app/llm/` is a provider abstraction, not a triage feature — it
+exists so the AI layer is swappable, testable without Ollama running, and
+never a single point of failure. `LLMProvider.generate()` is concrete on
+the base class (retry/timeout handling, structured-output validation,
+confidence derivation, logging), so `MockProvider` and `OllamaProvider`
+differ only in `_complete()`, one unretried call to the underlying model —
+`MockProvider` makes zero network calls and is the app's real default.
+`generate()` never raises: every failure (timeout, connection error,
+invalid output) becomes a returned `LLMResponse` with a
+`validation_status`, not an exception. Confidence is derived from how many
+retries validation required, never from a model's self-reported certainty.
+The full interface, request/response types, retry semantics, and
+confidence formula are defined in
+[DEF.md § Phase 6](../Documentation/DEF.md#phase-6-local-llm-integration)
+rather than duplicated here. This phase has no REST endpoint and no actual
+triage prompts — it proves the machinery works against an illustrative
+schema; Phase 7 writes the real prompts and persists `AnalysisResult` rows.
+
 ## Data Layer
 
 SQLAlchemy models sit behind a single `DATABASE_URL`; the dialect (Postgres in

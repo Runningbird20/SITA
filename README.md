@@ -123,11 +123,17 @@ npm run build
 ## Status
 
 Complete: Phase 0 (project foundation), Phase 1 (core data model — SQLAlchemy
-models, Alembic migrations, Postgres/SQLite dual-dialect support), and
-Phase 2 (event ingestion — 5 source-type adapters, batch CLI import, REST
-ingestion endpoint, synthetic datasets). See [Documentation/](Documentation/)
+models, Alembic migrations, Postgres/SQLite dual-dialect support), Phase 2
+(event ingestion — 5 source-type adapters, batch CLI import, REST ingestion
+endpoint, synthetic datasets), Phase 3 (detection engine — 7 deterministic
+rules), Phase 4 (IOC extraction — 6 regex extractors + structured fields,
+dedup), Phase 5 (incident correlation — weighted scoring across
+time/IOC/host/MITRE signals), and Phase 6 (local LLM integration — a
+swappable `LLMProvider` abstraction with `MockProvider`/`OllamaProvider`,
+structured-output validation, retry/confidence handling; the app runs with
+zero LLM network dependency by default). See [Documentation/](Documentation/)
 for the detailed report on each completed phase, and [TODO.md](TODO.md) for
-the full roadmap and what's next (Phase 3: Detection Engine).
+the full roadmap and what's next (Phase 7: AI-Powered Triage).
 
 ## License
 
