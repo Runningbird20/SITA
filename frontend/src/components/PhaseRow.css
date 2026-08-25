@@ -10,7 +10,8 @@
   transition: border-color 0.15s ease;
 }
 
-.phase-row[data-status="implemented"] {
+.phase-row[data-status="implemented"],
+.phase-row[data-status="implemented_static"] {
   border-color: var(--color-green-border);
 }
 

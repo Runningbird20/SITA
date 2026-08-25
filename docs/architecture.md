@@ -56,6 +56,20 @@ duplicated here. Two ingestion pathways share one validation/rejection
 contract: batch `.jsonl` file import, and `POST /api/v1/events/{source_type}`
 for individual/streamed events.
 
+## Detection Engine
+
+Seven deterministic rules (`backend/app/detection/`) read persisted
+`SecurityEvent` rows and produce `Alert` rows — no LLM involved anywhere in
+this phase. Every rule shares one interface (`DetectionRule.evaluate`) and
+one deterministic severity-scoring formula; the full rule table (grouping
+keys, thresholds, windows) is defined in
+[DEF.md § Phase 3](../Documentation/DEF.md#phase-3-detection-engine) rather
+than duplicated here. Run on-demand via
+`uv run python -m app.detection.cli` — no REST trigger endpoint yet
+(deliberately deferred to Phase 9). One rule (`impossible_travel`) depends on
+a GeoIP resolver that is currently a small static stub, documented as a known
+limitation rather than a real geolocation capability.
+
 ## Data Layer
 
 SQLAlchemy models sit behind a single `DATABASE_URL`; the dialect (Postgres in

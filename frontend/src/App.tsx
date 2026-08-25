@@ -22,6 +22,7 @@ function App() {
   const counts = useMemo(() => {
     const initial: Record<PhaseStatusValue, number> = {
       implemented: 0,
+      implemented_static: 0,
       not_implemented: 0,
       broken: 0,
       checking: 0,
@@ -29,6 +30,7 @@ function App() {
     for (const { status } of evaluated) initial[status] += 1;
     return initial;
   }, [evaluated]);
+  const greenCount = counts.implemented + counts.implemented_static;
 
   return (
     <div className="dashboard">
@@ -62,7 +64,7 @@ function App() {
 
       <section className="summary-bar">
         <span className="summary-item" data-status="implemented">
-          {counts.implemented} working
+          {greenCount} implemented
         </span>
         <span className="summary-item" data-status="broken">
           {counts.broken} broken
@@ -81,8 +83,11 @@ function App() {
       <footer className="dashboard-footer">
         <p>
           Phases 0–2 are checked live against the running backend (<code>/healthz</code>,{" "}
-          <code>/openapi.json</code>). Phases 3–15 have no built surface yet, so they're shown as
-          not implemented rather than guessed at.
+          <code>/openapi.json</code>) — green means "Working," verified just now. Phase 3 has no
+          REST endpoint yet (deliberately deferred to Phase 9), so it can't be checked live, but
+          it's genuinely complete — green "Implemented" is asserted from its own test suite and
+          report, not guessed. Phases 4–15 have no built surface at all yet, shown gray rather than
+          guessed at.
         </p>
       </footer>
     </div>

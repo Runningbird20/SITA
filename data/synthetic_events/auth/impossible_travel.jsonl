@@ -1,0 +1,2 @@
+{"timestamp": "2026-01-16T06:00:00Z", "host": "web01.internal", "event_result": "success", "username": "svc-remote", "source_ip": "203.0.113.7", "auth_method": "password", "service": "sshd"}
+{"timestamp": "2026-01-16T06:08:00Z", "host": "web01.internal", "event_result": "success", "username": "svc-remote", "source_ip": "198.51.100.88", "auth_method": "password", "service": "sshd"}
