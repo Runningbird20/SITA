@@ -9,7 +9,7 @@ deterministic pipeline.
 
 No paid APIs or API keys are required anywhere in this project.
 
-See [TODO.md](TODO.md) for the full engineering roadmap, [DEF.md](DEF.md) for
+See [TODO.md](TODO.md) for the full engineering roadmap, [DEF.md](Documentation/DEF.md) for
 the core data model, and [docs/architecture.md](docs/architecture.md) for a
 system overview.
 

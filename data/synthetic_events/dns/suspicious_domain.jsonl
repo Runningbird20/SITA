@@ -1,0 +1,4 @@
+{"timestamp": "2026-01-15T09:13:05Z", "host": "dns01.internal", "query_name": "xk29fh3mdq7z.example", "query_type": "A", "response_code": "NXDOMAIN", "resolver_ip": "10.0.0.2"}
+{"timestamp": "2026-01-15T09:13:22Z", "host": "dns01.internal", "query_name": "b7q1lz9wpm2a.example", "query_type": "A", "response_code": "NXDOMAIN", "resolver_ip": "10.0.0.2"}
+{"timestamp": "2026-01-15T09:13:40Z", "host": "dns01.internal", "query_name": "cdn-update-service.example", "query_type": "TXT", "response_code": "NOERROR", "resolved_ips": ["198.51.100.77"], "resolver_ip": "10.0.0.2"}
+{"timestamp": "2026-01-15T09:14:02Z", "host": "dns01.internal", "query_name": "cdn-update-service.example", "query_type": "A", "response_code": "NOERROR", "resolved_ips": ["198.51.100.77"], "resolver_ip": "10.0.0.2"}

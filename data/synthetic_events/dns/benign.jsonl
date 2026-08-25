@@ -1,0 +1,6 @@
+{"timestamp": "2026-01-14T08:00:03Z", "host": "dns01.internal", "query_name": "google.com", "query_type": "A", "response_code": "NOERROR", "resolved_ips": ["142.250.72.14"], "resolver_ip": "10.0.0.2"}
+{"timestamp": "2026-01-14T08:03:19Z", "host": "dns01.internal", "query_name": "github.com", "query_type": "A", "response_code": "NOERROR", "resolved_ips": ["140.82.112.3"], "resolver_ip": "10.0.0.2"}
+{"timestamp": "2026-01-14T08:22:41Z", "host": "dns01.internal", "query_name": "outlook.office365.com", "query_type": "A", "response_code": "NOERROR", "resolved_ips": ["52.96.10.4"], "resolver_ip": "10.0.0.2"}
+{"timestamp": "2026-01-14T09:05:52Z", "host": "dns01.internal", "query_name": "intranet.corp.internal", "query_type": "A", "response_code": "NOERROR", "resolved_ips": ["10.0.0.30"], "resolver_ip": "10.0.0.2"}
+{"timestamp": "2026-01-14T10:44:07Z", "host": "dns01.internal", "query_name": "slack.com", "query_type": "A", "response_code": "NOERROR", "resolved_ips": ["18.164.7.22"], "resolver_ip": "10.0.0.2"}
+{"timestamp": "2026-01-14T11:10:00Z", "host": "dns01.internal", "query_name": "cdn.jsdelivr.net", "query_type": "CNAME", "response_code": "NOERROR", "resolved_ips": ["104.16.85.20"], "resolver_ip": "10.0.0.2"}

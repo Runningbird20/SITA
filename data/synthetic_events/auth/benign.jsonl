@@ -1,0 +1,10 @@
+{"timestamp": "2026-01-14T08:02:11Z", "host": "web01.internal", "event_result": "success", "username": "jdoe", "source_ip": "10.0.0.42", "auth_method": "publickey", "service": "sshd"}
+{"timestamp": "2026-01-14T08:15:47Z", "host": "app02.internal", "event_result": "success", "username": "asmith", "source_ip": "10.0.0.51", "auth_method": "password", "service": "webapp-login"}
+{"timestamp": "2026-01-14T09:01:03Z", "host": "web01.internal", "event_result": "failure", "username": "jdoe", "source_ip": "10.0.0.42", "auth_method": "password", "service": "sshd"}
+{"timestamp": "2026-01-14T09:01:19Z", "host": "web01.internal", "event_result": "success", "username": "jdoe", "source_ip": "10.0.0.42", "auth_method": "publickey", "service": "sshd"}
+{"timestamp": "2026-01-14T10:22:34Z", "host": "db01.internal", "event_result": "success", "username": "dba_svc", "source_ip": "10.0.0.60", "auth_method": "mfa", "service": "rdp"}
+{"timestamp": "2026-01-14T11:47:02Z", "host": "app02.internal", "event_result": "success", "username": "asmith", "source_ip": "10.0.0.51", "auth_method": "password", "service": "webapp-login"}
+{"timestamp": "2026-01-14T13:05:55Z", "host": "ws-07.internal", "event_result": "success", "username": "svc-web", "source_ip": "10.0.0.7", "auth_method": "password", "service": "rdp"}
+{"timestamp": "2026-01-14T14:30:18Z", "host": "web01.internal", "event_result": "success", "username": "ops-admin", "source_ip": "10.0.0.9", "auth_method": "mfa", "service": "sshd"}
+{"timestamp": "2026-01-14T16:12:41Z", "host": "app02.internal", "event_result": "failure", "username": "asmith", "source_ip": "10.0.0.51", "auth_method": "password", "service": "webapp-login"}
+{"timestamp": "2026-01-14T16:12:52Z", "host": "app02.internal", "event_result": "success", "username": "asmith", "source_ip": "10.0.0.51", "auth_method": "password", "service": "webapp-login"}

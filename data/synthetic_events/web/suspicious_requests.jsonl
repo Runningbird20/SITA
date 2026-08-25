@@ -1,0 +1,6 @@
+{"timestamp": "2026-01-15T07:00:01Z", "host": "web01.internal", "method": "GET", "path": "/admin/login.php", "status_code": 401, "source_ip": "203.0.113.7", "user_agent": "sqlmap/1.7.11#stable"}
+{"timestamp": "2026-01-15T07:00:04Z", "host": "web01.internal", "method": "GET", "path": "/login.php?id=1' OR '1'='1", "status_code": 403, "source_ip": "203.0.113.7", "user_agent": "sqlmap/1.7.11#stable"}
+{"timestamp": "2026-01-15T07:00:07Z", "host": "web01.internal", "method": "GET", "path": "/login.php?id=1' UNION SELECT NULL,NULL,NULL--", "status_code": 403, "source_ip": "203.0.113.7", "user_agent": "sqlmap/1.7.11#stable"}
+{"timestamp": "2026-01-15T07:00:10Z", "host": "web01.internal", "method": "GET", "path": "/../../../../etc/passwd", "status_code": 404, "source_ip": "203.0.113.7", "user_agent": "sqlmap/1.7.11#stable"}
+{"timestamp": "2026-01-15T07:00:13Z", "host": "web01.internal", "method": "GET", "path": "/wp-admin/setup-config.php", "status_code": 404, "source_ip": "203.0.113.7", "user_agent": "Mozilla/5.0 (compatible; Nikto/2.5.0)"}
+{"timestamp": "2026-01-15T07:00:16Z", "host": "web01.internal", "method": "GET", "path": "/phpmyadmin/index.php", "status_code": 404, "source_ip": "203.0.113.7", "user_agent": "Mozilla/5.0 (compatible; Nikto/2.5.0)"}
