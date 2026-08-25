@@ -42,8 +42,19 @@ Every finding in the system is traceable to exactly one of two origins:
   `AnalysisResult` row (provider, model, prompt version, latency) and never
   written into a deterministic table's fields.
 
-See [DEF.md](../DEF.md) for the full data model and how this separation is
+See [DEF.md](../Documentation/DEF.md) for the full data model and how this separation is
 enforced at the schema level.
+
+## Event Ingestion
+
+Every simulated event source (`auth`, `endpoint`, `network`, `dns`, `web`)
+arrives in its own raw JSON Lines format and is mapped by a per-source
+ingestion adapter into the shared `SecurityEvent.normalized` shape. The raw
+contract and finalized normalized shape for each source type are defined in
+[DEF.md § Phase 2](../Documentation/DEF.md#phase-2-event-ingestion) rather than
+duplicated here. Two ingestion pathways share one validation/rejection
+contract: batch `.jsonl` file import, and `POST /api/v1/events/{source_type}`
+for individual/streamed events.
 
 ## Data Layer
 

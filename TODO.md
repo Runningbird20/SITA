@@ -96,24 +96,24 @@ SITA/
 
 **Tasks**
 
-- [x] Define `SecurityEvent` (normalized, source-agnostic single observation: timestamp, source type, raw payload, normalized fields, entity refs) — see [DEF.md](DEF.md#1-securityevent)
-- [x] Define `Alert` (output of the detection engine: rule/source that fired, severity, related events, IOCs, MITRE technique refs, status) — see [DEF.md](DEF.md#4-alert)
-- [x] Define `Incident` (correlated group of alerts: title, status, severity, timeline, related entities, related AI analyses) — see [DEF.md](DEF.md#5-incident)
-- [x] Define `IOC` (type, value, first_seen, last_seen, confidence, validation status, source alerts/events) — see [DEF.md](DEF.md#6-ioc)
-- [x] Define `Entity` (host, user, IP, or other actor referenced across events — enables correlation) — see [DEF.md](DEF.md#2-entity)
-- [x] Define `Detection` (a deterministic rule definition + its firing metadata, distinct from the `Alert` instance it produces) — see [DEF.md](DEF.md#3-detection)
-- [x] Define `MITRETechnique` (technique ID, name, tactic, description — locally stored subset of ATT&CK) — see [DEF.md](DEF.md#7-mitretechnique)
-- [x] Define `Recommendation` (next-step suggestion: text, source [rule-based vs LLM], related incident/alert, priority) — see [DEF.md](DEF.md#9-recommendation)
-- [x] Define `AnalysisResult` (LLM output envelope: model/provider used, prompt version, raw + parsed structured output, confidence, timestamp, latency) — see [DEF.md](DEF.md#8-analysisresult); see also [[llm-provider-abstraction]] in Phase 6
-- [x] `[HIGH VALUE]` Explicitly tag every field/table as `deterministic` or `ai_generated` at the schema level (e.g., separate tables/columns, never commingled) so provenance is enforced by the data model, not just convention — provenance convention documented in [DEF.md](DEF.md#conventions)
-- [x] Design relational schema (SQLAlchemy models) capturing the above and their relationships (Event ↔ Alert ↔ Incident ↔ IOC ↔ Entity ↔ MITRETechnique ↔ Recommendation ↔ AnalysisResult) — `backend/app/models/`; 9 entity tables + 4 plain junction tables (`alert_event`, `event_ioc`, `alert_ioc`, `detection_mitre_mapping`) + 3 association-object junction tables that carry their own attributes (`EventEntity`, `AlertEntity`, `AlertMitreMapping`), all mirroring [DEF.md](DEF.md#entity-relationship-overview)'s ERD; `configure_mappers()` verified clean
+- [x] Define `SecurityEvent` (normalized, source-agnostic single observation: timestamp, source type, raw payload, normalized fields, entity refs) — see [DEF.md](Documentation/DEF.md#1-securityevent)
+- [x] Define `Alert` (output of the detection engine: rule/source that fired, severity, related events, IOCs, MITRE technique refs, status) — see [DEF.md](Documentation/DEF.md#4-alert)
+- [x] Define `Incident` (correlated group of alerts: title, status, severity, timeline, related entities, related AI analyses) — see [DEF.md](Documentation/DEF.md#5-incident)
+- [x] Define `IOC` (type, value, first_seen, last_seen, confidence, validation status, source alerts/events) — see [DEF.md](Documentation/DEF.md#6-ioc)
+- [x] Define `Entity` (host, user, IP, or other actor referenced across events — enables correlation) — see [DEF.md](Documentation/DEF.md#2-entity)
+- [x] Define `Detection` (a deterministic rule definition + its firing metadata, distinct from the `Alert` instance it produces) — see [DEF.md](Documentation/DEF.md#3-detection)
+- [x] Define `MITRETechnique` (technique ID, name, tactic, description — locally stored subset of ATT&CK) — see [DEF.md](Documentation/DEF.md#7-mitretechnique)
+- [x] Define `Recommendation` (next-step suggestion: text, source [rule-based vs LLM], related incident/alert, priority) — see [DEF.md](Documentation/DEF.md#9-recommendation)
+- [x] Define `AnalysisResult` (LLM output envelope: model/provider used, prompt version, raw + parsed structured output, confidence, timestamp, latency) — see [DEF.md](Documentation/DEF.md#8-analysisresult); see also [[llm-provider-abstraction]] in Phase 6
+- [x] `[HIGH VALUE]` Explicitly tag every field/table as `deterministic` or `ai_generated` at the schema level (e.g., separate tables/columns, never commingled) so provenance is enforced by the data model, not just convention — provenance convention documented in [DEF.md](Documentation/DEF.md#conventions)
+- [x] Design relational schema (SQLAlchemy models) capturing the above and their relationships (Event ↔ Alert ↔ Incident ↔ IOC ↔ Entity ↔ MITRETechnique ↔ Recommendation ↔ AnalysisResult) — `backend/app/models/`; 9 entity tables + 4 plain junction tables (`alert_event`, `event_ioc`, `alert_ioc`, `detection_mitre_mapping`) + 3 association-object junction tables that carry their own attributes (`EventEntity`, `AlertEntity`, `AlertMitreMapping`), all mirroring [DEF.md](Documentation/DEF.md#entity-relationship-overview)'s ERD; `configure_mappers()` verified clean
 - [x] Set up Alembic migrations, first migration creating all core tables — `backend/alembic/`, migration `6224f8f082fb_initial_schema.py`; applied and verified against **both** SQLite and a real Postgres container (`docker compose`); `alembic check` confirms no model/migration drift
 - [x] Implement the data-layer abstraction: SQLAlchemy engine/session configured from `DATABASE_URL`, supporting both `postgresql+psycopg` and `sqlite` dialects without code changes elsewhere — `backend/app/db/session.py` (engine/session) + `backend/app/db/types.py` (JSON/JSONB variant type); verified end-to-end against both dialects via the same model/migration code
 - [x] Write Pydantic schemas mirroring ORM models for API I/O (request/response), separate from ORM models — `backend/app/schemas/`; one `*Read` schema per entity (`from_attributes=True`). Scope note: only read/response schemas were written, since no endpoints exist yet to consume Create/Update payloads (Phase 9 adds those alongside the actual routes that need them) — not building unused schemas now per the "don't design for hypothetical requirements" principle
-- [x] Add DB-level indexes for expected hot paths (event timestamp, IOC value, entity identifiers, incident status) — declared directly on the models (see each table in [DEF.md](DEF.md) for its index list); confirmed present in the generated migration and, for Postgres, via `\d` inspection
+- [x] Add DB-level indexes for expected hot paths (event timestamp, IOC value, entity identifiers, incident status) — declared directly on the models (see each table in [DEF.md](Documentation/DEF.md) for its index list); confirmed present in the generated migration and, for Postgres, via `\d` inspection
 - [x] Write unit tests validating schema constraints (required fields, enum values, FK integrity) — `backend/tests/unit/test_models.py` (11 cases: full graph round-trip, unique constraints, NOT NULL, FK integrity, both check constraints) + `backend/tests/unit/test_schemas.py`; all passing against an in-memory SQLite DB with `PRAGMA foreign_keys=ON`
 
-**Definition of Done:** All core tables exist via Alembic migration, apply cleanly against both Postgres and SQLite, and are covered by model-level tests. ER diagram committed to `docs/architecture.md`. — met; the ERD itself lives in [DEF.md](DEF.md#entity-relationship-overview) with `docs/architecture.md` linking to it rather than duplicating it.
+**Definition of Done:** All core tables exist via Alembic migration, apply cleanly against both Postgres and SQLite, and are covered by model-level tests. ER diagram committed to `docs/architecture.md`. — met; the ERD itself lives in [DEF.md](Documentation/DEF.md#entity-relationship-overview) with `docs/architecture.md` linking to it rather than duplicating it.
 
 ---
 
@@ -123,21 +123,21 @@ SITA/
 
 **Tasks**
 
-- [ ] Define the common normalized event schema fields shared across all source types (timestamp, source_type, entity refs, raw payload, normalized attributes)
-- [ ] Implement ingestion adapter: authentication events (SSH/login success/failure, source IP, user, host)
-- [ ] Implement ingestion adapter: endpoint events (process execution, command line, parent/child process)
-- [ ] Implement ingestion adapter: network events (connection tuples, ports, protocol, bytes)
-- [ ] Implement ingestion adapter: DNS events (query, response, record type, resolver)
-- [ ] Implement ingestion adapter: web server events (HTTP method, path, status, user agent, source IP)
-- [ ] Implement a normalization layer that maps each adapter's raw shape into `SecurityEvent`
-- [ ] Support both batch ingestion (upload/import a file of events) and a REST endpoint for streaming individual events
-- [ ] `[HIGH VALUE]` Build a synthetic dataset generator (or curated static datasets) producing realistic events for each source type, including both benign and attack-pattern traffic
-- [ ] Include at least one full "attack scenario" dataset spanning multiple source types (e.g., brute force → lateral movement → data access) for end-to-end demos
-- [ ] Validate and reject malformed events at the ingestion boundary (schema validation, not silent drops)
-- [ ] Write ingestion + normalization unit tests per source type
-- [ ] Document the normalized event schema in `docs/architecture.md`
+- [x] Define the common normalized event schema fields shared across all source types (timestamp, source_type, entity refs, raw payload, normalized attributes) — finalized in [DEF.md § Phase 2](Documentation/DEF.md#2-normalized-shape-securityeventnormalized--finalized); raw per-source contracts also defined in [DEF.md § Phase 2 §1](Documentation/DEF.md#1-raw-event-contracts)
+- [x] Implement ingestion adapter: authentication events (SSH/login success/failure, source IP, user, host) — `backend/app/ingestion/auth.py`
+- [x] Implement ingestion adapter: endpoint events (process execution, command line, parent/child process) — `backend/app/ingestion/endpoint.py`
+- [x] Implement ingestion adapter: network events (connection tuples, ports, protocol, bytes) — `backend/app/ingestion/network.py`
+- [x] Implement ingestion adapter: DNS events (query, response, record type, resolver) — `backend/app/ingestion/dns.py`
+- [x] Implement ingestion adapter: web server events (HTTP method, path, status, user agent, source IP) — `backend/app/ingestion/web.py`
+- [x] Implement a normalization layer that maps each adapter's raw shape into `SecurityEvent` — `IngestionAdapter.parse()` (`backend/app/ingestion/base.py`) validates/normalizes into a `ParsedEvent`; `backend/app/ingestion/service.py` maps `ParsedEvent` → a persisted `SecurityEvent` row
+- [x] Support both batch ingestion (upload/import a file of events) and a REST endpoint for streaming individual events — CLI batch importer `backend/app/ingestion/cli.py` (`uv run python -m app.ingestion.cli <source_type> <path>`) and `POST /api/v1/events/{source_type}` (`backend/app/api/events.py`), both sharing `ingest_records()`
+- [x] `[HIGH VALUE]` Build a synthetic dataset generator (or curated static datasets) producing realistic events for each source type, including both benign and attack-pattern traffic — `data/synthetic_events/{auth,endpoint,network,dns,web}/` — a `benign.jsonl` baseline plus one attack-pattern file per source type, all verified to ingest with zero rejections
+- [x] Include at least one full "attack scenario" dataset spanning multiple source types (e.g., brute force → lateral movement → data access) for end-to-end demos — `data/synthetic_events/scenarios/brute_force_to_lateral_movement/` (auth → network → endpoint → dns, with a narrative `README.md` and shared-entity design for Phase 5 correlation)
+- [x] Validate and reject malformed events at the ingestion boundary (schema validation, not silent drops) — every adapter raises `IngestionValidationError` with a specific reason/field; `ingest_records()` catches it per-record and never aborts the rest of the batch
+- [x] Write ingestion + normalization unit tests per source type — `backend/tests/unit/test_ingestion_adapters.py` (all 5 adapters), `test_ingestion_service.py`, `test_ingestion_cli.py`, plus `backend/tests/integration/test_events_api.py` and `test_synthetic_datasets.py` (which ingests every real dataset file, including the scenario, and asserts zero rejections)
+- [x] Document the normalized event schema in `docs/architecture.md` — [docs/architecture.md](docs/architecture.md) now has an "Event Ingestion" section pointing to the finalized schema in DEF.md, following the same link-rather-than-duplicate pattern used for the Phase 1 ERD
 
-**Definition of Done:** Each of the 5 source types can be ingested via file import and/or API, normalized into `SecurityEvent` rows, and persisted. At least one multi-stage synthetic attack scenario dataset exists and is checked in under `data/synthetic_events/`.
+**Definition of Done:** Each of the 5 source types can be ingested via file import and/or API, normalized into `SecurityEvent` rows, and persisted. At least one multi-stage synthetic attack scenario dataset exists and is checked in under `data/synthetic_events/`. — met; verified via the CLI against every dataset file (all 116 events across 5 source types plus the 4-stage scenario persisted with zero rejections) and via a live `POST /api/v1/events/{source_type}` call against a running instance.
 
 ---
 

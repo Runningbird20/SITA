@@ -1,0 +1,6 @@
+{"timestamp": "2026-01-14T08:00:10Z", "host": "fw01.internal", "src_ip": "10.0.0.42", "src_port": 51022, "dst_ip": "10.0.0.5", "dst_port": 443, "protocol": "tcp", "bytes_sent": 2200, "bytes_received": 18400}
+{"timestamp": "2026-01-14T08:05:33Z", "host": "fw01.internal", "src_ip": "10.0.0.51", "src_port": 51301, "dst_ip": "10.0.0.60", "dst_port": 5432, "protocol": "tcp", "bytes_sent": 640, "bytes_received": 3300}
+{"timestamp": "2026-01-14T09:12:00Z", "host": "fw01.internal", "src_ip": "10.0.0.9", "src_port": 51500, "dst_ip": "10.0.0.5", "dst_port": 22, "protocol": "tcp", "bytes_sent": 1100, "bytes_received": 900}
+{"timestamp": "2026-01-14T10:40:18Z", "host": "fw01.internal", "src_ip": "10.0.0.7", "src_port": 51811, "dst_ip": "10.0.0.5", "dst_port": 443, "protocol": "tcp", "bytes_sent": 3000, "bytes_received": 22100}
+{"timestamp": "2026-01-14T12:15:44Z", "host": "fw01.internal", "src_ip": "10.0.0.42", "src_port": 52011, "dst_ip": "10.0.0.60", "dst_port": 5432, "protocol": "tcp", "bytes_sent": 500, "bytes_received": 2700}
+{"timestamp": "2026-01-14T14:02:09Z", "host": "fw01.internal", "src_ip": "10.0.0.51", "src_port": 52200, "dst_ip": "8.8.8.8", "dst_port": 53, "protocol": "udp", "bytes_sent": 64, "bytes_received": 128}

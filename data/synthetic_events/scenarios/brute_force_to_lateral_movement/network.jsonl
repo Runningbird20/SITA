@@ -1,0 +1,9 @@
+{"timestamp": "2026-01-15T03:16:00Z", "host": "fw01.internal", "src_ip": "10.0.0.5", "src_port": 44001, "dst_ip": "10.0.0.7", "dst_port": 21, "protocol": "tcp", "bytes_sent": 40, "bytes_received": 0}
+{"timestamp": "2026-01-15T03:16:04Z", "host": "fw01.internal", "src_ip": "10.0.0.5", "src_port": 44002, "dst_ip": "10.0.0.7", "dst_port": 22, "protocol": "tcp", "bytes_sent": 40, "bytes_received": 0}
+{"timestamp": "2026-01-15T03:16:08Z", "host": "fw01.internal", "src_ip": "10.0.0.5", "src_port": 44003, "dst_ip": "10.0.0.7", "dst_port": 80, "protocol": "tcp", "bytes_sent": 40, "bytes_received": 0}
+{"timestamp": "2026-01-15T03:16:12Z", "host": "fw01.internal", "src_ip": "10.0.0.5", "src_port": 44004, "dst_ip": "10.0.0.7", "dst_port": 135, "protocol": "tcp", "bytes_sent": 40, "bytes_received": 0}
+{"timestamp": "2026-01-15T03:16:16Z", "host": "fw01.internal", "src_ip": "10.0.0.5", "src_port": 44005, "dst_ip": "10.0.0.7", "dst_port": 139, "protocol": "tcp", "bytes_sent": 40, "bytes_received": 0}
+{"timestamp": "2026-01-15T03:16:20Z", "host": "fw01.internal", "src_ip": "10.0.0.5", "src_port": 44006, "dst_ip": "10.0.0.7", "dst_port": 445, "protocol": "tcp", "bytes_sent": 40, "bytes_received": 0}
+{"timestamp": "2026-01-15T03:16:24Z", "host": "fw01.internal", "src_ip": "10.0.0.5", "src_port": 44007, "dst_ip": "10.0.0.7", "dst_port": 3389, "protocol": "tcp", "bytes_sent": 40, "bytes_received": 0}
+{"timestamp": "2026-01-15T03:16:28Z", "host": "fw01.internal", "src_ip": "10.0.0.5", "src_port": 44008, "dst_ip": "10.0.0.7", "dst_port": 5985, "protocol": "tcp", "bytes_sent": 40, "bytes_received": 0}
+{"timestamp": "2026-01-15T03:16:40Z", "host": "fw01.internal", "src_ip": "10.0.0.5", "src_port": 44009, "dst_ip": "10.0.0.7", "dst_port": 3389, "protocol": "tcp", "bytes_sent": 1800, "bytes_received": 9200}

@@ -1,6 +1,6 @@
 # Phase 1: Core Data Model — Completion Report
 
-Status: complete. This document explains what was built, how the pieces fit together, and why each decision was made. For the field-level schema reference, see [DEF.md](../DEF.md) — that document is the data dictionary; this one is the narrative of how it got implemented and what tradeoffs that involved. For the checklist itself, see [TODO.md](../TODO.md#phase-1-core-data-model).
+Status: complete. This document explains what was built, how the pieces fit together, and why each decision was made. For the field-level schema reference, see [DEF.md](DEF.md) — that document is the data dictionary; this one is the narrative of how it got implemented and what tradeoffs that involved. For the checklist itself, see [TODO.md](../TODO.md#phase-1-core-data-model).
 
 ## Goal
 
@@ -15,7 +15,7 @@ Two design principles drove every decision in this phase, both carried over from
 
 ### The data dictionary first (`DEF.md`)
 
-Before any code was written, every entity was fully specified — field names, types, nullability, relationships, indexes, and enum values — in [DEF.md](../DEF.md). This was intentional sequencing: designing the schema on paper first (or rather, in Markdown) surfaces relationship questions (does an IOC belong to one event or many? does a Recommendation always need an incident, or can it stand alone against just an alert?) that are much cheaper to get wrong in a document than in a migration that's already been applied. The DEF.md conventions section also establishes the two rules every model had to follow:
+Before any code was written, every entity was fully specified — field names, types, nullability, relationships, indexes, and enum values — in [DEF.md](DEF.md). This was intentional sequencing: designing the schema on paper first (or rather, in Markdown) surfaces relationship questions (does an IOC belong to one event or many? does a Recommendation always need an incident, or can it stand alone against just an alert?) that are much cheaper to get wrong in a document than in a migration that's already been applied. The DEF.md conventions section also establishes the two rules every model had to follow:
 
 - IDs are UUIDs everywhere, never auto-increment integers exposed over an API.
 - Enums are stored as `VARCHAR`, validated at the application level — not native Postgres enum types — specifically so SQLite (used for fast local dev and tests) stays schema-compatible with Postgres without special-casing.

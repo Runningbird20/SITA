@@ -1,6 +1,13 @@
-# SITA — Core Data Model Definitions
+# SITA — Data & Contract Definitions
 
-Companion to [TODO.md](TODO.md) Phase 1. This document defines the schema for every core entity at the field level: names, types, constraints, relationships, and provenance. It is the source of truth to implement against when writing the SQLAlchemy models, Alembic migration, and Pydantic schemas — those remain separate, later tasks (see status note at the bottom).
+Companion to [TODO.md](../TODO.md). This document is the project's running data dictionary — the field-level source of truth for every schema and contract, written *before* the code that implements it, one section per phase. It's organized by phase in the order those phases were built, not by topic, so each section reflects what was actually decided at the time — later phases may refine earlier ones, and where that happens it's called out explicitly rather than silently overwritten.
+
+- **Phase 1** (below): the core relational schema — every entity, its fields, and the relationships between them.
+- **Phase 2** (below): the event ingestion contracts — the raw shape each of the 5 simulated event sources arrives in, the normalized shape they're mapped to, and the ingestion adapter/API contract.
+
+---
+
+# Phase 1: Core Data Model
 
 ## Conventions
 
@@ -271,7 +278,7 @@ erDiagram
 
 ---
 
-## Status: implemented
+## Phase 1 Status: implemented
 
 Phase 1 is complete. Everything defined above is implemented and verified:
 
@@ -285,3 +292,232 @@ Phase 1 is complete. Everything defined above is implemented and verified:
 One naming note: the `Entity.metadata` field described above is implemented as `Entity.entity_metadata` in code — `metadata` is a reserved attribute name on SQLAlchemy's declarative `Base` (it's the `MetaData` object), so it can't be reused as a column attribute.
 
 See `TODO.md` Phase 1 for the itemized checklist.
+
+---
+
+# Phase 2: Event Ingestion
+
+## Scope
+
+Phase 1 defined `SecurityEvent` as the normalized, source-agnostic landing table (`source_type`, `occurred_at`, `raw_payload`, `normalized`, ...) but only sketched the per-source `normalized` shape loosely. Phase 2 finalizes that contract and adds everything upstream of it: what a raw simulated event looks like for each of the 5 source types, how it's validated and mapped into `SecurityEvent`, the two ways it can enter the system, and the format of the synthetic datasets used to exercise all of it. Every raw shape below is a **simulated** format designed for this project — not a copy of any real vendor's log schema — chosen to be realistic enough that the detection rules in Phase 3 have genuine signal to work with.
+
+## Conventions
+
+- **Transport format:** raw events are [JSON Lines](https://jsonlines.org/) (`.jsonl`) — one JSON object per line, UTF-8, no enclosing array. Chosen because it streams naturally (line-by-line parsing, no need to buffer a whole file to find the closing bracket) and because synthetic datasets are easiest to build by appending attack-pattern lines onto a benign baseline file.
+- **Timestamps:** every raw record's `timestamp` field is an ISO 8601 UTC string (`...Z` suffix) — parsed into `SecurityEvent.occurred_at`.
+- **Universal raw fields:** every raw record, regardless of source type, must include `timestamp` and `host`. These map to `SecurityEvent.occurred_at` and `SecurityEvent.source_host` respectively. Every other field is source-type-specific (below).
+- **One source type per file/request:** a raw ingestion file or REST request body contains records of exactly one `source_type`. A scenario that spans multiple source types (e.g., an attack that touches auth, endpoint, and network logs) is represented as multiple single-source-type files ingested separately — see Synthetic Dataset Design below — not as one mixed file. This keeps each adapter's validation logic single-purpose.
+- **`raw_payload` is preserved verbatim.** Whatever JSON object a source produces is stored byte-for-byte (as parsed JSON) in `SecurityEvent.raw_payload`, even after normalization — so nothing is ever lost between what was ingested and what the normalized view claims it means.
+
+## 1. Raw Event Contracts
+
+The input format each ingestion adapter accepts, before any normalization.
+
+### `auth`
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `timestamp` | string (ISO 8601 UTC) | Yes | When the auth attempt occurred |
+| `host` | string | Yes | System that generated the log (the auth service's host) |
+| `event_result` | `"success"` \| `"failure"` | Yes | Outcome of the attempt |
+| `username` | string | Yes | Account name used in the attempt |
+| `source_ip` | string | Yes | Origin IP of the attempt |
+| `auth_method` | `"password"` \| `"publickey"` \| `"mfa"` | Yes | Authentication mechanism |
+| `service` | string | No | Originating service, e.g. `sshd`, `rdp`, `webapp-login` |
+
+```json
+{"timestamp": "2026-01-15T03:12:07Z", "host": "web01.internal", "event_result": "failure", "username": "root", "source_ip": "203.0.113.7", "auth_method": "password", "service": "sshd"}
+```
+
+### `endpoint`
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `timestamp` | string (ISO 8601 UTC) | Yes | When the process event occurred |
+| `host` | string | Yes | Endpoint the process ran on |
+| `process_name` | string | Yes | Executable name |
+| `command_line` | string | Yes | Full command line, as launched |
+| `pid` | integer | Yes | Process ID |
+| `parent_pid` | integer | No | Parent process ID |
+| `parent_process_name` | string | No | Parent executable name |
+| `user` | string | Yes | Account the process ran under |
+
+```json
+{"timestamp": "2026-01-15T03:14:52Z", "host": "ws-12.internal", "process_name": "powershell.exe", "command_line": "powershell -enc SQBFAFgA...", "pid": 4821, "parent_pid": 3312, "parent_process_name": "explorer.exe", "user": "jdoe"}
+```
+
+### `network`
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `timestamp` | string (ISO 8601 UTC) | Yes | When the connection was observed |
+| `host` | string | Yes | Sensor/host that logged the connection (e.g., a firewall or the endpoint itself) |
+| `src_ip` | string | Yes | Source IP of the connection |
+| `src_port` | integer | Yes | Source port |
+| `dst_ip` | string | Yes | Destination IP |
+| `dst_port` | integer | Yes | Destination port |
+| `protocol` | `"tcp"` \| `"udp"` \| `"icmp"` | Yes | Transport protocol |
+| `bytes_sent` | integer | No | Bytes sent, source → destination |
+| `bytes_received` | integer | No | Bytes received, destination → source |
+
+```json
+{"timestamp": "2026-01-15T03:16:00Z", "host": "ws-12.internal", "src_ip": "10.0.0.12", "src_port": 51422, "dst_ip": "10.0.0.5", "dst_port": 22, "protocol": "tcp", "bytes_sent": 1200, "bytes_received": 340}
+```
+
+### `dns`
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `timestamp` | string (ISO 8601 UTC) | Yes | When the query was resolved |
+| `host` | string | Yes | Resolver/sensor host that logged the query |
+| `query_name` | string | Yes | Domain queried |
+| `query_type` | `"A"` \| `"AAAA"` \| `"CNAME"` \| `"TXT"` \| `"MX"` \| `"NS"` | Yes | DNS record type requested |
+| `response_code` | `"NOERROR"` \| `"NXDOMAIN"` \| `"SERVFAIL"` \| `"REFUSED"` | Yes | Resolution outcome |
+| `resolved_ips` | array of string | No | IPs returned (empty/absent on failure) |
+| `resolver_ip` | string | Yes | IP of the resolver that served the query |
+
+```json
+{"timestamp": "2026-01-15T03:16:30Z", "host": "dns01.internal", "query_name": "cdn-update-service.example", "query_type": "A", "response_code": "NOERROR", "resolved_ips": ["198.51.100.23"], "resolver_ip": "10.0.0.2"}
+```
+
+### `web`
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `timestamp` | string (ISO 8601 UTC) | Yes | When the request was served |
+| `host` | string | Yes | Server that logged the request |
+| `method` | `"GET"` \| `"POST"` \| `"PUT"` \| `"DELETE"` \| `"HEAD"` \| `"OPTIONS"` | Yes | HTTP method |
+| `path` | string | Yes | Request path (query string included, if any) |
+| `status_code` | integer | Yes | HTTP response status |
+| `source_ip` | string | Yes | Client IP |
+| `user_agent` | string | No | Client `User-Agent` header |
+
+```json
+{"timestamp": "2026-01-15T03:20:11Z", "host": "web01.internal", "method": "GET", "path": "/admin/login.php?id=1' OR '1'='1", "status_code": 401, "source_ip": "203.0.113.7", "user_agent": "curl/7.68.0"}
+```
+
+## 2. Normalized Shape (`SecurityEvent.normalized`) — finalized
+
+This finalizes the sketch from the Phase 1 `SecurityEvent` section. For every source type, this is exactly what `normalized` contains after adapter mapping — the canonical reference for anything downstream (detection rules in Phase 3, IOC extraction in Phase 4) that reads `SecurityEvent.normalized` instead of re-parsing `raw_payload`.
+
+| `source_type` | `normalized` fields |
+|---|---|
+| `auth` | `event_result`, `username`, `source_ip`, `dest_host`, `auth_method` |
+| `endpoint` | `process_name`, `command_line`, `pid`, `parent_pid`, `parent_process_name`, `user` |
+| `network` | `src_ip`, `src_port`, `dst_ip`, `dst_port`, `protocol`, `bytes_sent`, `bytes_received` |
+| `dns` | `query_name`, `query_type`, `response_code`, `resolved_ips`, `resolver_ip` |
+| `web` | `method`, `path`, `status_code`, `source_ip`, `user_agent`, `host` |
+
+Mapping notes:
+- `auth.dest_host` is the raw record's `host` field, renamed on the way into `normalized` — `SecurityEvent.source_host` already captures "which system produced this log," so `dest_host` inside `normalized` specifically means "which host the authentication attempt targeted," which happens to be the same value for these simulated logs but is named for its semantic role, not its literal source.
+- `web.host` is intentionally still present inside `normalized` even though `SecurityEvent.source_host` also captures it — for web logs specifically, `source_host` is "which server produced this log entry" and `normalized.host` is "which virtual host / server the request was addressed to." They're the same value in every simulated dataset here (no load balancer/vhost fan-out modeled), but the fields are kept semantically distinct rather than collapsed, since a real deployment would have load-balanced web logs where they diverge.
+- Optional raw fields not present in the source record are omitted from `normalized` rather than written as explicit `null` — keeps IOC extraction (Phase 4) and detection rules (Phase 3) able to use plain `dict.get(...)` / "key absent" checks without a null-vs-missing distinction to handle.
+
+## 3. Ingestion Adapter Interface
+
+One adapter per source type, all conforming to the same shape:
+
+```python
+class IngestionAdapter(Protocol):
+    source_type: SourceType
+
+    def parse(self, raw: dict) -> ParsedEvent | IngestionError:
+        """Validate one raw record and map it to the normalized shape.
+        Never raises for a malformed record — returns an IngestionError
+        instead, so one bad record in a batch never aborts the rest."""
+```
+
+`ParsedEvent` (a Pydantic schema, `app/schemas/ingestion.py`) is the adapter's output — an in-memory representation ready to become a `SecurityEvent` row, not yet persisted:
+
+| Field | Type | Description |
+|---|---|---|
+| `source_type` | `SourceType` | Echoed from the adapter |
+| `occurred_at` | `datetime` | Parsed from raw `timestamp` |
+| `source_host` | `str` | Copied from raw `host` |
+| `raw_payload` | `dict` | The raw record, verbatim |
+| `normalized` | `dict` | Mapped per the table in §2 |
+
+`IngestionError` carries enough to build the rejection report in §5: `{ reason: str, field: str | None }`.
+
+**Adapter responsibility boundary:** an adapter validates *shape* (required fields present, correct type, enum values within the allowed set) — it does **not** perform semantic/threat validation. Whether `203.0.113.7` is a known-bad IP is an IOC/detection question (Phases 3–4), not an ingestion question. Ingestion's only job is "is this a well-formed `auth` record," not "is this a suspicious one."
+
+## 4. Ingestion Pathways
+
+Two ways a raw event reaches `SecurityEvent`, both producing the same `IngestionReport`:
+
+```
+IngestionReport = {
+  batch_id: UUID | null,
+  source_type: SourceType,
+  total: int,
+  accepted: int,
+  rejected: int,
+  errors: [{ index: int, reason: str, field: str | null }]
+}
+```
+
+### Batch file import
+
+- Accepts a `.jsonl` file, all records the same declared `source_type`.
+- Every accepted record in the file is stamped with the same newly-generated `ingestion_batch_id`, so an entire import can be queried, audited, or (in principle) rolled back as a unit.
+- Each line is parsed and validated independently; one malformed line is recorded as a rejection and does not stop the rest of the file from being ingested. `errors[].index` is the 1-based line number.
+
+### `POST /api/v1/events/{source_type}` (REST streaming)
+
+- Body: a single raw event object, or a JSON array of raw event objects — all matching the `source_type` path parameter.
+- No `ingestion_batch_id` is assigned (stays `null`) — this path is for individual/streamed events, not a bulk import, matching `SecurityEvent.ingestion_batch_id` being nullable per Phase 1. `errors[].index` is the array index (`0` for a single-object body).
+- Scope note: this is a narrow, write-only ingestion endpoint. The broader queryable REST surface (`GET` with pagination/filtering/sorting across events, alerts, incidents, IOCs, etc.) is Phase 9's responsibility — this endpoint exists only to get raw events into the system, not to read them back out.
+
+## 5. Validation & Rejection
+
+- A record is rejected — never silently dropped — when: `timestamp` is missing or unparseable, `host` is missing, or any source-type-required field from §1 is missing or fails its declared type/enum check.
+- Every rejection is recorded in `IngestionReport.errors` with a specific, actionable reason (e.g., `"missing required field: event_result"`, not a generic "invalid record").
+- Ingestion never raises an unhandled exception because of one malformed record — a bad line in a 10,000-line file still leaves the other 9,999 ingested, with the one failure reported precisely.
+
+## 6. Synthetic Dataset Design
+
+**Location:** `data/synthetic_events/`
+
+**Layout:**
+
+```
+data/synthetic_events/
+├── auth/
+│   ├── benign.jsonl
+│   └── brute_force.jsonl
+├── endpoint/
+│   ├── benign.jsonl
+│   └── suspicious_powershell.jsonl
+├── network/
+│   ├── benign.jsonl
+│   └── port_scan.jsonl
+├── dns/
+│   ├── benign.jsonl
+│   └── suspicious_domain.jsonl
+├── web/
+│   ├── benign.jsonl
+│   └── suspicious_requests.jsonl
+└── scenarios/
+    └── brute_force_to_lateral_movement/
+        ├── auth.jsonl
+        ├── endpoint.jsonl
+        ├── network.jsonl
+        ├── dns.jsonl
+        └── README.md
+```
+
+- Each per-source-type folder has a `benign.jsonl` baseline (normal traffic, used to check detection rules *don't* false-positive on ordinary activity) plus one or more attack-pattern files exercising a specific Phase 3 detection rule in isolation.
+- `scenarios/` holds multi-stage datasets spanning several source types, meant to be ingested together and then run through the full pipeline (detection → correlation → MITRE mapping) as an end-to-end demo. Each scenario's `README.md` narrates the storyline and lists which Phase 3 detections and Phase 8 MITRE techniques it's meant to exercise, so it can later double as a Phase 12 evaluation fixture with a known expected outcome.
+- **First planned scenario — `brute_force_to_lateral_movement`:** SSH brute force against `web01` (`auth`), an eventual successful login (`auth`), a suspicious PowerShell download-and-execute on the compromised host (`endpoint`), an internal port scan launched from that host (`network`), and a suspicious outbound DNS query to a C2-pattern domain (`dns`). Chosen specifically because it's the same scenario referenced in Phase 5's correlation design goal ("reconstructs the multi-stage attack scenario as a single incident, not scattered alerts") — the dataset and the correlation test target are the same story, by design.
+
+## Phase 2 Status: implemented
+
+Everything above is implemented and verified, matching the specification exactly:
+
+- 5 ingestion adapters: `backend/app/ingestion/{auth,endpoint,network,dns,web}.py`, sharing the universal timestamp/host validation and the `normalize()` contract from `backend/app/ingestion/base.py`
+- `ParsedEvent` / `IngestionReportError` / `IngestionReport` as real Pydantic schemas: `backend/app/schemas/ingestion.py`
+- Both ingestion pathways: the CLI batch importer (`backend/app/ingestion/cli.py`) and `POST /api/v1/events/{source_type}` (`backend/app/api/events.py`), both calling the same `ingest_records()` service (`backend/app/ingestion/service.py`)
+- Synthetic datasets: `data/synthetic_events/` — a `benign.jsonl` plus at least one attack-pattern file per source type, and the `scenarios/brute_force_to_lateral_movement/` multi-stage scenario with its narrative README
+- Tests: `backend/tests/unit/test_ingestion_adapters.py`, `test_ingestion_service.py`, `test_ingestion_cli.py`, and `backend/tests/integration/test_events_api.py` + `test_synthetic_datasets.py` (the latter loads and validates every real dataset file, not synthetic fixtures written just for the test)
+
+See [Documentation/PHASE-2.md](PHASE-2.md) for the full narrative — what was built, how it connects, and why each decision was made — and `TODO.md` Phase 2 for the itemized checklist.
