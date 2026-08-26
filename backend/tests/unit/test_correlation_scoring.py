@@ -88,12 +88,19 @@ class TestIOCScore:
         assert breakdown.ioc_score == CONFIG.ioc_weight
         assert breakdown.shared_ioc_ids == shared
 
-    def test_one_shared_ioc_below_saturation_scores_partial(self):
+    def test_one_shared_ioc_scores_full_weight(self):
+        # ioc_saturation=1: a single shared high-specificity indicator (IP,
+        # domain, hash, url, email — username is filtered out before this
+        # function ever sees it, see
+        # test_correlation_pipeline.py::TestBuildAlertSignature) is treated
+        # as decisive on its own, not partial credit requiring a second
+        # match. See DEF.md § Phase 5, "Shared-IOC correlation: username
+        # excluded, ioc_saturation lowered to 1 (post-roadmap)".
         shared_id = uuid.uuid4()
         alert = _alert_sig(ioc_ids={shared_id}, first_event_at=NOW, last_event_at=NOW)
         incident = _incident_sig(ioc_ids={shared_id}, first_activity_at=NOW, last_activity_at=NOW)
         breakdown = score_alert_against_incident(alert, incident, CONFIG)
-        assert 0 < breakdown.ioc_score < CONFIG.ioc_weight
+        assert breakdown.ioc_score == CONFIG.ioc_weight
 
     def test_no_shared_iocs_scores_zero(self):
         alert = _alert_sig(ioc_ids={uuid.uuid4()}, first_event_at=NOW, last_event_at=NOW)

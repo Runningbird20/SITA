@@ -1,14 +1,19 @@
 # SITA — What's Next
 
-All 15 roadmap phases in [TODO.md](TODO.md) are complete, and every architecture decision the project was carrying is resolved ([TODO2.md](TODO2.md)). This file is different from those two: it's not tracking commitments or open questions from the original plan — it's a candid list of what would make this project meaningfully better if someone picked it up next, written from having built and verified every line of it.
+All 15 roadmap phases in [TODO.md](TODO.md) are complete. This file is different from that: it's not tracking commitments or open questions from the original plan — it's a candid list of what would make this project meaningfully better if someone picked it up next, written from having built and verified every line of it.
 
 Nothing here is a promise or a roadmap. It's organized roughly by effort-vs-impact, with the reasoning behind each idea so a future contributor (human or otherwise) can judge whether it's still worth doing rather than taking it on faith.
 
 ---
 
-## Fix first: a real, already-known bug
+## Fixed: the correlation ingestion-order bug
 
-**Correlation gives a different (wrong) answer depending on ingestion order/context.** Ingesting *only* the eval dataset's `multi_stage` scenario files produces 2 incidents; ingesting the full eval dataset (same files, plus everything else) correctly produces 1. This was found during Phase 12, worked around (the AI-grounding script uses the full-dataset path) rather than root-caused, and documented plainly rather than hidden — see [DEF.md § Phase 12 Status](Documentation/DEF.md#phase-12-status-implemented). The likely culprit is something in `app/correlation/pipeline.py`'s chronological single-pass grouping being sensitive to what candidate incidents already exist when a given alert is processed, not just to that alert's own signals. Worth a focused investigation: reproduce with the smallest possible two-dataset repro, add logging of the score breakdown at each grouping decision, and confirm whether it's a real logic bug or an artifact of how the eval harness's markers happen to collide across cases.
+**Resolved (post-roadmap).** The investigation this section originally asked for turned up two real, compounding bugs, not one:
+
+1. **`username` IOCs were scored identically to IPs/domains/hashes.** A bare shared username (e.g. `"admin"`) is expected to recur across genuinely unrelated hosts/incidents — and concretely did, in this project's own eval-dataset fixtures, spuriously merging 4 unrelated alerts into the `multi_stage` incident whenever the full eval dataset was ingested.
+2. **Removing that bug exposed a second one it had been masking**: a single shared high-specificity IOC (e.g. the real attacker IP linking the brute-force and port-scan alerts) only earned half credit (`ioc_saturation=2`), which wasn't enough to cross `correlation_threshold` on its own — this also broke an existing, intentional unit test that had only ever passed because its fixture *also* happened to share a username.
+
+Fix: `username` is now excluded from IOC-based correlation scoring entirely (`app/correlation/pipeline.py::_build_alert_signature`), and `ioc_saturation` was lowered from `2` to `1` so one strong shared IOC is decisive on its own. Verified: `multi_stage` now correctly produces one incident whether ingested alone or as part of the full eval dataset, the full test suite passes (including a new regression test for the username case), and the eval harness's correlation accuracy is 2/2 for the right reason this time, not by coincidence. Full writeup: [DEF.md § Phase 5, "Shared-IOC correlation: username excluded"](Documentation/DEF.md#phase-5-incident-correlation).
 
 ---
 

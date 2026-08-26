@@ -31,12 +31,22 @@ from app.correlation.host_extraction import extract_host_candidates
 from app.correlation.scoring import score_alert_against_incident
 from app.correlation.title import generate_title
 from app.models.alert import Alert
-from app.models.enums import EntityType, IncidentStatus, Severity
+from app.models.enums import EntityType, IncidentStatus, IOCType, Severity
 from app.models.event import SecurityEvent
 from app.models.incident import Incident
 from app.schemas.correlation_run import CorrelationRunReport
 
 logger = logging.getLogger(__name__)
+
+# Excluded from IOC-based correlation scoring: a username alone is too
+# low-specificity to treat as evidence two alerts are related — ordinary
+# accounts ("admin", a shared service account, ...) are expected to recur
+# across genuinely unrelated hosts/incidents, unlike an IP, domain, hash,
+# URL, or email address. Confirmed as a real (not hypothetical) failure
+# mode: unrelated eval-dataset fixtures sharing only the username "admin"
+# spuriously merged into one incident during Phase 12 evaluation. See
+# DEF.md § Phase 5, "Shared-IOC correlation: username excluded (post-roadmap)".
+_NON_CORRELATING_IOC_TYPES = frozenset({IOCType.USERNAME})
 
 _SEVERITY_ORDER = [Severity.LOW, Severity.MEDIUM, Severity.HIGH, Severity.CRITICAL]
 
@@ -54,7 +64,7 @@ def _load_events(db: Session, since: datetime | None) -> list[SecurityEvent]:
 
 
 def _build_alert_signature(alert: Alert) -> AlertSignature:
-    ioc_ids = {ioc.id for ioc in alert.iocs}
+    ioc_ids = {ioc.id for ioc in alert.iocs if ioc.ioc_type not in _NON_CORRELATING_IOC_TYPES}
     host_entity_ids = set()
     for event in alert.events:
         for link in event.entity_links:

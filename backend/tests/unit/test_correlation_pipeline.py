@@ -104,3 +104,27 @@ class TestRunCorrelation:
 
         assert first.alerts_processed >= 1
         assert second.alerts_processed == 0
+
+    def test_alerts_sharing_only_a_username_do_not_merge(self, db_session, brute_force_events):
+        # Regression test for a real bug found during Phase 12 evaluation:
+        # brute_force_events always uses username "admin" — two genuinely
+        # unrelated bursts (different source IP, different host, far apart
+        # in time) must NOT merge just because they share that username.
+        # Before this fix, a shared username counted as a full IOC-signal
+        # match, spuriously merging unrelated eval-dataset fixtures. See
+        # DEF.md § Phase 5, "Shared-IOC correlation: username excluded,
+        # ioc_saturation lowered to 1 (post-roadmap)".
+        brute_force_events("198.51.100.1", "db01.internal", base_offset=0)
+        brute_force_events("203.0.113.9", "app02.internal", base_offset=6 * 3600)
+        db_session.commit()
+        run_detection(db_session)
+        db_session.commit()
+        run_ioc_extraction(db_session)
+        db_session.commit()
+
+        report = run_correlation(db_session)
+        db_session.commit()
+
+        assert report.incidents_created == 2
+        assert report.incidents_joined == 0
+        assert len(db_session.scalars(select(Incident)).all()) == 2

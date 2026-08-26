@@ -854,11 +854,18 @@ Two cases:
 | Signal | Source | Generalizes |
 |---|---|---|
 | **Time proximity** | `Alert.first_event_at`/`last_event_at` vs. the candidate incident's activity range | — |
-| **Shared IOC** | `Alert.iocs` (Phase 4) — any `IOC.id` in common with the incident's aggregate IOC set | shared IP, shared user, shared domain, plus shared URL/hash/email as a bonus — all are just `IOCType` values, so one mechanism covers all of them |
+| **Shared IOC** | `Alert.iocs` (Phase 4) — any `IOC.id` in common with the incident's aggregate IOC set, **excluding `username`** (post-roadmap amendment, see below) | shared IP, shared domain, shared URL/hash/email — all are just `IOCType` values, so one mechanism covers all of them |
 | **Shared host** | `Alert`'s matched events' host `Entity` rows (this phase, including the alias bridge above) vs. the incident's aggregate host set | shared host |
 | **Shared MITRE technique** | `Alert.mitre_mappings` vs. the incident's aggregate technique set | — |
 
 The MITRE signal is real, tested code — but was **inert in practice** at the time this section was written: no `Detection` row carried a MITRE mapping until Phase 8 populated `detection_mitre_mapping`, so every alert's technique set was empty and this signal always contributed `0`. Built now rather than bolted on later, exactly like Phase 3's MITRE-mapping association objects were built in Phase 1 before Phase 3 could use them. **Update (Phase 8):** no longer inert — `run_mitre_mapping()` now populates `alert.mitre_mappings` for real, and this scoring code (unchanged since Phase 5) produces a genuine nonzero contribution; see [DEF.md § Phase 8](#phase-8-mitre-attck-integration).
+
+**Shared-IOC correlation: username excluded, `ioc_saturation` lowered to 1 (post-roadmap).** Investigating a WHATNEXT.md item ("correlation gives a different answer depending on ingestion order") surfaced two real, compounding bugs, confirmed by reproduction (not assumed):
+
+1. A `username` IOC (e.g. `"admin"`) was scored identically to an IP/domain/hash — but a bare username is expected to recur across genuinely unrelated hosts and incidents (both in reality and, concretely, across this project's own eval-dataset fixtures), unlike a specific attacker IP. This caused unrelated alerts sharing only the username `"admin"` to spuriously merge into one incident during a full eval-dataset run. `app/correlation/pipeline.py::_build_alert_signature` now excludes `IOCType.USERNAME` from the IOC set used for scoring entirely — shared-user correlation is no longer part of the shared-IOC mechanism (the "generalizes" column above is corrected to reflect this).
+2. Removing that bug exposed a second, real one: with the (accidental) username boost gone, a genuinely-related pair sharing one strong IOC (e.g. an attacker IP) no longer reliably crossed `correlation_threshold`, because `ioc_saturation=2` meant a *single* shared IOC only earned half of `ioc_weight` (`0.2` of `0.4`) — this broke an existing, intentional test (`test_alerts_sharing_ip_and_close_in_time_merge`: same attacker IP hitting two hosts 10 minutes apart) that had only ever passed because its fixture *also* coincidentally shared the same fixed test username. `ioc_saturation` is now `1`: one shared high-specificity IOC is treated as decisive on its own. This actually makes the config match reasoning the "Scoring formula" table below already stated ("shared-IOC alone (`0.4`) ... crosses [the threshold]") — that reasoning was correct in intent but the `2` value never actually delivered it for a single shared IOC.
+
+Both fixes verified against: the unit test suite (`test_correlation_scoring.py`, `test_correlation_pipeline.py`, including a new regression test asserting two alerts sharing only a username do *not* merge), and the Phase 12 eval harness re-run — `multi_stage` now correctly produces one incident whether ingested alone or as part of the full eval dataset (previously: 2 incidents alone, 1 incident only via the full dataset, for the wrong reason — 4 unrelated alerts had spuriously joined via the username bug, and one of them happened to extend the incident's activity window just enough to eliminate the time-decay penalty that was otherwise blocking the legitimate join).
 
 ## Scoring formula
 
@@ -876,8 +883,8 @@ join if score >= correlation_threshold
 |---|---|---|
 | `time_weight` | `0.2` | Necessary supporting signal, never sufficient alone — pure time adjacency between two coincidentally-nearby-but-unrelated alerts shouldn't merge them |
 | `time_decay_seconds` | `1800` (30 min) | Generous enough to span a realistic multi-stage attack's pacing, tight enough to decay to ~0 well before unrelated daily activity |
-| `ioc_weight` | `0.4` | The strongest single signal — a literally-shared indicator (same attacker IP, same compromised account) is hard to explain as coincidence |
-| `ioc_saturation` | `2` | Two or more shared IOCs already fully justifies the max score; no need to keep climbing |
+| `ioc_weight` | `0.4` | The strongest single signal — a literally-shared indicator (same attacker IP, same file hash, ...) is hard to explain as coincidence. Deliberately does *not* include `username` (see above) — a shared account name alone isn't the same category of evidence |
+| `ioc_saturation` | `1` (was `2` through Phase 5–11; lowered post-roadmap, see above) | A single shared high-specificity IOC already fully justifies the max score — no need for a second one, once a low-specificity signal like username can no longer count toward it |
 | `host_weight` | `0.3` | A shared host is strong evidence (same asset touched twice) but weighted below shared IOC since Phase 5's own alias-bridging makes it partly inferred rather than purely literal |
 | `host_saturation` | `1` | A single shared host is already enough — hosts don't have graded "more shared" the way IOC counts do |
 | `mitre_weight` | `0.1` | Smallest weight — currently always `0` in practice (see above), reserved for Phase 8 |

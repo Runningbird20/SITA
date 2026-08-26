@@ -15,7 +15,7 @@ class CorrelationConfig:
     time_weight: float = 0.2
     time_decay_seconds: int = 1800
     ioc_weight: float = 0.4
-    ioc_saturation: int = 2
+    ioc_saturation: int = 1
     host_weight: float = 0.3
     host_saturation: int = 1
     mitre_weight: float = 0.1
