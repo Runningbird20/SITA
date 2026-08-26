@@ -45,6 +45,14 @@ alerts_duplicate_skipped_total = Counter(
     ["rule_key"],
 )
 
+alerts_cross_rule_duplicate_skipped_total = Counter(
+    "sita_alerts_cross_rule_duplicate_skipped_total",
+    "Findings skipped because a different rule already created an Alert "
+    "over the exact same matched-event set this run — see DEF.md § Phase 3 "
+    "'Post-roadmap addition: cross-rule fingerprint dedup'.",
+    ["rule_key"],
+)
+
 detection_rule_duration_seconds = Histogram(
     "sita_detection_rule_duration_seconds",
     "Time spent evaluating a single detection rule against loaded events.",

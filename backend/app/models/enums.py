@@ -34,6 +34,7 @@ class DetectionCategory(StrEnum):
     NETWORK = "network"
     ENDPOINT = "endpoint"
     WEB = "web"
+    ANOMALY = "anomaly"
 
 
 class Severity(StrEnum):
