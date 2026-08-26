@@ -1325,10 +1325,10 @@ All under `api_v1_prefix` (`/api/v1`, from Phase 0's `Settings`).
 | `GET /alerts` | `Page[AlertRead]` | |
 | `GET /alerts/{id}` | `AlertRead` | |
 | `GET /alerts/{id}/mitre-techniques` | `list[AlertMitreMappingRead]` | that alert's own rule/LLM technique mappings |
-| `GET /incidents` | `Page[IncidentRead]` | |
-| `GET /incidents/{id}` | `IncidentDetail` | `IncidentRead` + nested `alerts`, deduplicated `iocs` (rolled up across alerts), `analysis_results`, `recommendations`, `mitre_techniques` (Phase 8's rollup) |
+| `GET /incidents` | `Page[IncidentRead]` | `IncidentRead` carries `alert_count` (**Phase 10 amendment** — computed via an aggregated `GROUP BY` in the list query, `len(alerts)` in the detail view; Phase 9 didn't anticipate the incident list view needing it) |
+| `GET /incidents/{id}` | `IncidentDetail` | `IncidentRead` + nested `alerts`, deduplicated `iocs`/`entities` (rolled up across alerts — `entities` is a **Phase 10 amendment**, same reasoning as `alert_count`), `analysis_results`, `recommendations`, `mitre_techniques` (Phase 8's rollup) |
 | `GET /incidents/{id}/mitre-techniques` | `list[IncidentTechniqueEntryOut]` | standalone, same data as the nested field above — for a caller that only wants this |
-| `GET /iocs` | `Page[IOCRead]` | |
+| `GET /iocs` | `Page[IOCRead]` | `search` query param added in Phase 10 (`ILIKE` substring match on `value`); `IOCRead` carries `alert_ids`/`event_ids` (**Phase 10 amendment** — built explicitly in `app/api/converters.py::to_ioc_read`, since Pydantic's `from_attributes` can't turn `IOC.alerts`/`.events` — lists of full ORM objects — into id lists on its own) |
 | `GET /iocs/{id}` | `IOCRead` | |
 | `GET /detections` | `Page[DetectionRead]` | |
 | `GET /detections/{id}` | `DetectionDetail` | `DetectionRead` + nested `mitre_techniques` |
@@ -1364,3 +1364,70 @@ Verified against the live docker-compose stack (real Postgres, `uvicorn --reload
 **One retroactive update this phase makes to five earlier phases**: Phase 3/4/5/7/8 each documented, in their own sections above and in their `PHASE-N.md` reports, that the frontend dashboard would show a static "Implemented" until Phase 9 gave them a live-checkable surface. That promise is now kept — `frontend/src/data/phases.ts` upgrades all five from `staticImplemented` to `liveCheck`, each checking that its own now-real endpoint (`/api/v1/detections`, `/api/v1/iocs`, `/api/v1/incidents`, `/api/v1/analysis-results`, `/api/v1/mitre-techniques`) is present in the live `/openapi.json` — the same shallow-but-honest pattern Phase 2 established (confirms the route is genuinely mounted, not that any given resource has data yet). Phase 6 deliberately stays static: the `LLMProvider` abstraction has no domain-object identity of its own for a REST resource to expose — `AnalysisResult` (Phase 7's output, not Phase 6's) is what Phase 9 can check.
 
 See [Documentation/PHASE-9.md](PHASE-9.md) for the full narrative and `TODO.md` Phase 9 for the itemized checklist.
+
+---
+
+# Phase 10: Frontend
+
+## Scope
+
+The real SOC-style dashboard — replacing, in role, the build-status page `FRONTEND.md` documents (Phases 0–9's cross-cutting meta-tool). That page isn't deleted: it moves to `/status` as a standing diagnostic, since it still answers a question ("is each backend phase actually live right now") the real dashboard doesn't. `/` and every other route become the genuine product: browsing real incidents, alerts, IOCs, detections, and MITRE mappings sourced entirely from Phase 9's REST API.
+
+## Routing
+
+`react-router-dom` (the one new runtime dependency this phase adds — hand-rolling multi-page routing with deep-linkable URLs, browser history, and nested layouts is exactly the kind of solved problem this project's own "hand-roll only where it's a portfolio signal" principle (see the LLM provider, the API client) doesn't apply to):
+
+| Path | Page | Notes |
+|---|---|---|
+| `/` | Overview | Severity counts, recent incidents, alert volume |
+| `/alerts` | Alert list | Filterable/sortable table |
+| `/incidents` | Incident list | Filterable/sortable table |
+| `/incidents/:incidentId` | Incident detail | Alerts, IOCs, entities, MITRE techniques, AI analysis panel, recommendations, timeline |
+| `/iocs` | IOC explorer | Searchable/filterable |
+| `/detections` | Detection rules | List + recent firings per rule |
+| `/mitre` | MITRE technique library | Grouped by tactic (see below — not a live "observed" matrix) |
+| `/status` | Build-status page | Moved unchanged from Phases 0–9; see `FRONTEND.md` |
+
+## Typed API client
+
+`frontend/src/api/types.ts` hand-mirrors every Pydantic schema Phase 9 exposes (no OpenAPI codegen — same reasoning as `react-router-dom` above, but in the other direction: this project's own hand-written API client, not a generated one, is itself part of the "own the code that matters" signal, and the schema surface is small and stable enough that hand-mirroring costs less than wiring up a generator). `frontend/src/api/resources.ts` has one typed fetch function per endpoint, all going through a shared `fetchPage`/`fetchJson` helper that decodes the `{"error": {...}}` envelope Phase 9 guarantees on failure into a typed `ApiError`.
+
+## Data fetching
+
+One hook, `useApiQuery<T>(fetcher, deps)` (`frontend/src/hooks/useApiQuery.ts`), used by every page — mirrors the shape `useBackendStatus` already established (`loading`/`data`/`error`/`refetch`), so a page's data-fetching code is never more than a `useApiQuery(() => fetchIncidents(params), [params])` call. No client-side cache/query library: this dashboard has ~8 independent views each fetching once per navigation, not the kind of shared-cache, background-refetch problem a library like that earns its keep solving.
+
+## Visual language
+
+Extends `index.css`'s existing dark/monospace-accented palette from the status page rather than starting over (same reasoning `FRONTEND.md` gave for choosing that palette originally — so replacing the status page later didn't mean starting from zero, and now that "later" is this phase):
+
+- **Severity** (`--color-severity-{low,medium,high,critical}`) — a distinct 4-step scale (blue → amber → orange → red), used for every severity badge across alerts/incidents. Kept separate from the status page's green/yellow/red health-check palette — severity and liveness are different axes and were deliberately never made to share colors.
+- **AI attribution** (`--color-ai`, a violet accent) — every piece of AI-generated content (an `AnalysisResult` card, an LLM-sourced `Recommendation`, an LLM-sourced MITRE mapping badge) gets this accent consistently: a left border, a badge reading "AI-generated," and — wherever the data has it — the model/provider and derived confidence shown directly. This is the `[HIGH VALUE]` requirement from TODO.md, and the mechanism is the same one the backend already uses for provenance: every AI claim is only ever attached to a `source`/`analysis_result_id`-carrying row, so the frontend's job is just to render that distinction, never to infer it.
+- Loading/empty/error states are one shared trio of components (`LoadingState`, `EmptyState`, `ErrorState`) used everywhere `useApiQuery` is, so no page silently renders nothing while loading or on failure.
+
+## The MITRE page is a technique library, not a live "observed" matrix
+
+TODO.md asks for "a matrix-style view highlighting techniques observed in the environment." Phase 9 exposes the vendored technique list (`GET /mitre-techniques`) and per-incident/per-alert rollups (`GET /incidents/{id}/mitre-techniques`, `GET /alerts/{id}/mitre-techniques`) — but no environment-wide "which techniques has anything ever mapped to" aggregate. Computing that client-side would mean fetching every incident's rollup individually (N+1 against the API), and no such aggregate endpoint exists server-side. Rather than build one speculatively or fake the aggregation, `/mitre` renders the technique library grouped by tactic (Phase 8's `techniques_by_tactic()` concept, reimplemented client-side over the flat list) — genuinely a "matrix-style view... using local data," just not cross-referenced against live incident data. Recorded here as a deliberate, documented scope boundary, not a silent gap.
+
+## Small Phase 9 amendments this phase required
+
+Two fields Phase 9's endpoints didn't carry, both because Phase 9 was written before any UI consumer existed to reveal the need: `IncidentRead.alert_count` (the incident list view needs it; computed via an aggregated query, not a per-row lazy-load) and `IncidentDetail.entities` (TODO.md's incident detail task explicitly asks for entities, which Phase 9's endpoint table never listed as its own resource — Phase 5's `Entity` model already existed, just never had a nested field). `IOCRead.alert_ids`/`.event_ids` were added for the IOC explorer's "links back to source alerts/events" requirement, plus a `search` query param on `GET /iocs`. All four are documented in-place in the Phase 9 endpoint reference above rather than silently changing what that section already claimed.
+
+## Phase 10 Status: implemented
+
+Everything above is implemented and verified, matching the specification exactly:
+
+- Routing: `frontend/src/App.tsx` (route table), `frontend/src/main.tsx` (`BrowserRouter`), `frontend/src/components/Layout.tsx` (nav shell + the demo "Run pipeline" button, calling `POST /pipeline/run` directly)
+- Typed client: `frontend/src/api/types.ts` (hand-mirrored schemas), `frontend/src/api/resources.ts` (one typed fetch function per endpoint), `frontend/src/api/client.ts`'s new `apiFetch`/`ApiError`/`buildQuery` (kept alongside the original `fetchJson`/`fetchHealthz`/`fetchOpenApiPaths`, which `/status` still uses unchanged)
+- Data fetching: `frontend/src/hooks/useApiQuery.ts`
+- Shared UI: `frontend/src/components/ui/{QueryState,Badges,Pagination}.tsx`, `frontend/src/styles/dashboard.css` (severity scale, AI-attribution treatment, tables, cards, filters, pagination)
+- Pages: `frontend/src/pages/{OverviewPage,AlertsPage,IncidentsPage,IncidentDetailPage,IocsPage,DetectionsPage,MitrePage,StatusPage}.tsx`
+- Backend amendments this phase required: `IncidentRead.alert_count`, `IncidentDetail.entities`, `IOCRead.alert_ids`/`.event_ids`, `GET /iocs`'s `search` param, `app/api/converters.py::to_ioc_read` — all documented in-place in the Phase 9 endpoint reference above, plus 5 new/extended backend tests covering them
+- `npm run build`/`lint`/`format:check` all pass clean. Backend: `ruff check`/`ruff format --check` pass clean, full suite 311 passed, 1 skipped.
+
+Verified against the live docker-compose stack: the frontend image was rebuilt (`docker compose up -d --build frontend`) after adding `react-router-dom` — the container's `node_modules` isn't bind-mounted, only `src/`, so the new dependency wasn't visible until rebuild; this was caught directly (every route-importing file 500'd with "Failed to resolve import react-router-dom" in the container logs) rather than assumed to work because `npm run build` passed on the host. Every route (`/`, `/incidents`, `/incidents/{id}` deep-linked, `/alerts`, `/iocs`, `/detections`, `/mitre`, `/status`) confirmed serving `200` post-rebuild. The MITRE loader was run and `POST /pipeline/run` was triggered for real against the live Postgres stack, and the resulting `GET /incidents/{id}` payload was inspected directly: 2 correlated alerts, real `correlation_method` scoring signals (including a nonzero `mitre_score`), 2 deduplicated IOCs, 1 entity, 1 MITRE technique with rule-sourced evidence, and 6 `AnalysisResult` rows — confirming the nested-detail page's data shape end-to-end against genuine data, not fixtures.
+
+**One characteristic worth recording, not a bug**: with `LLM_PROVIDER=mock` (this project's own default), every triage `AnalysisResult` in that live run had `validation_status=invalid`, since the unconfigured `MockProvider()` `get_llm_provider()` constructs in production returns a bare `{}` for every call (Phase 6's deliberate, minimal default — never fabricated content). The incident detail page's AI panel renders this correctly (an honest "did not validate" message, not a crash or blank state), satisfying Phase 10's "no dead ends or unhandled empty states" requirement — but a reviewer wanting to see genuinely populated AI panels needs `LLM_PROVIDER=ollama` with a real model pulled. Not addressed here since it's Phase 6/7's own established behavior, not something Phase 10 introduced or should silently patch.
+
+Same convention as every prior phase's own dashboard entry: Phase 10 shows static "Implemented" on `/status`, not live-checked "Working" — it's the dashboard itself, with no separate REST resource for a live check to point at (the same reasoning as Phase 6).
+
+See [Documentation/PHASE-10.md](PHASE-10.md) for the full narrative and `TODO.md` Phase 10 for the itemized checklist.

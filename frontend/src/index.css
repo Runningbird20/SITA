@@ -20,6 +20,25 @@
 
   --color-gray: #4b5563;
 
+  /* Severity — a distinct 4-step scale from the health-check palette
+   * above. Severity and liveness are different axes and deliberately
+   * never share colors. See DEF.md § Phase 10. */
+  --color-severity-low: #60a5fa;
+  --color-severity-low-bg: rgba(96, 165, 250, 0.12);
+  --color-severity-medium: #fbbf24;
+  --color-severity-medium-bg: rgba(251, 191, 36, 0.12);
+  --color-severity-high: #fb923c;
+  --color-severity-high-bg: rgba(251, 146, 60, 0.12);
+  --color-severity-critical: #f87171;
+  --color-severity-critical-bg: rgba(248, 113, 113, 0.14);
+
+  /* AI attribution accent — applied consistently everywhere AI-generated
+   * content appears, so it's unmistakable at a glance from deterministic
+   * content. See DEF.md § Phase 10. */
+  --color-ai: #a78bfa;
+  --color-ai-bg: rgba(167, 139, 250, 0.1);
+  --color-ai-border: rgba(167, 139, 250, 0.4);
+
   --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
 

@@ -11,13 +11,16 @@ from app.main import app
 from app.models import Base
 from app.models.alert import Alert
 from app.models.analysis_result import AnalysisResult
-from app.models.associations import AlertMitreMapping
+from app.models.associations import AlertEntity, AlertMitreMapping
 from app.models.detection import Detection
+from app.models.entity import Entity
 from app.models.enums import (
     AlertStatus,
     AnalysisTaskType,
     AnalysisValidationStatus,
     DetectionCategory,
+    EntityRole,
+    EntityType,
     ExtractionSource,
     IncidentStatus,
     IOCType,
@@ -141,6 +144,16 @@ def seed_full_incident(session_factory: sessionmaker[Session]) -> dict:
         db.flush()
         alert.iocs.append(ioc)
 
+        entity = Entity(
+            entity_type=EntityType.HOST,
+            identifier="db01.internal",
+            first_seen=NOW,
+            last_seen=NOW,
+        )
+        db.add(entity)
+        db.flush()
+        db.add(AlertEntity(alert_id=alert.id, entity_id=entity.id, role=EntityRole.TARGET))
+
         db.add(
             AlertMitreMapping(
                 alert_id=alert.id, technique_id=technique.id, source=MitreMappingSource.RULE
@@ -179,6 +192,7 @@ def seed_full_incident(session_factory: sessionmaker[Session]) -> dict:
             "incident_id": str(incident.id),
             "alert_id": str(alert.id),
             "ioc_id": str(ioc.id),
+            "entity_id": str(entity.id),
             "analysis_result_id": str(analysis_result.id),
             "recommendation_id": str(recommendation.id),
         }

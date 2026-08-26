@@ -105,18 +105,23 @@ npm install
 npm run dev
 ```
 
-Visit http://localhost:5173. Right now the frontend is a **build status
-dashboard**: one row per roadmap phase, each with a live status dot — gray
-(not implemented), green (checked against the running backend right now
-and working), yellow (genuinely complete per its own test suite, but with
-no live-checkable surface — currently only Phase 6), or red (expected to
-work but the backend is unreachable, unhealthy, or the check failed).
-Phases 0, 1, 2, 3, 4, 5, 7, 8, and 9 are all checked live via `/healthz`
-and `/openapi.json`; phases 10–15 have no built surface yet, so they're
-shown as not implemented rather than guessed at. This gets replaced by the
-real SOC-style dashboard in Phase 10.
+Visit http://localhost:5173 for the real SOC-style dashboard: an overview
+(severity counts, recent incidents, alert volume), filterable/sortable
+alert and incident lists, an incident detail page (constituent alerts,
+IOCs, entities, MITRE techniques, recommendations, and an AI analysis
+panel visually distinct from deterministic content), an IOC explorer, a
+detections page, and a MITRE ATT&CK technique library — all backed live by
+the Phase 9 REST API. A "Run pipeline" button in the nav triggers
+`POST /api/v1/pipeline/run` for demos.
+
+The original build-status page — one row per roadmap phase with a live
+status dot (gray/not implemented, green/live-checked and working, yellow/
+complete but with no live-checkable surface, red/unreachable or failing)
+— didn't go away; it moved to http://localhost:5173/status as a standing
+diagnostic.
 
 ```bash
+npm run test
 npm run lint
 npm run format:check
 npm run build
@@ -142,14 +147,19 @@ ATT&CK integration — a curated local technique dataset, deterministic
 rule-to-technique mappings declared on each detection rule, and the
 incident-level technique rollup that also switches on Phase 5's
 correlation MITRE-agreement signal, dormant until now for lack of data),
-and Phase 9 (REST API — a paginated, filterable, sortable read surface
+Phase 9 (REST API — a paginated, filterable, sortable read surface
 over every domain object, a structured error envelope, auto-generated
 OpenAPI docs, and a pipeline-trigger endpoint for demos; also switches
 Phase 3/4/5/7/8's dashboard entries from static "Implemented" to
-live-checked "Working," a promise each of those phases' own docs made).
-See [Documentation/](Documentation/) for the detailed report on each
+live-checked "Working," a promise each of those phases' own docs made),
+and Phase 10 (frontend — a real SOC-style dashboard: overview, alert and
+incident lists, an incident detail page with a visually distinct AI
+analysis panel, an IOC explorer, a detections page, and a MITRE technique
+library, all live against the Phase 9 API; the original build-status page
+moved to `/status` rather than being replaced). See
+[Documentation/](Documentation/) for the detailed report on each
 completed phase, and [TODO.md](TODO.md) for the full roadmap and what's
-next (Phase 10: Frontend).
+next (Phase 11: Testing).
 
 ## License
 

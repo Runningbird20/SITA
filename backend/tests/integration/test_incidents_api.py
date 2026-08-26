@@ -11,6 +11,7 @@ class TestListAndGetIncidents:
         body = response.json()
         assert body["total"] == 1
         assert body["items"][0]["status"] == "open"
+        assert body["items"][0]["alert_count"] == 1
 
     def test_filter_by_status_and_severity(self, client):
         test_client, session_factory = client
@@ -30,11 +31,17 @@ class TestListAndGetIncidents:
         assert response.status_code == 200
         body = response.json()
 
+        assert body["alert_count"] == 1
         assert len(body["alerts"]) == 1
         assert body["alerts"][0]["id"] == ids["alert_id"]
 
         assert len(body["iocs"]) == 1
         assert body["iocs"][0]["id"] == ids["ioc_id"]
+        assert body["iocs"][0]["alert_ids"] == [ids["alert_id"]]
+
+        assert len(body["entities"]) == 1
+        assert body["entities"][0]["id"] == ids["entity_id"]
+        assert body["entities"][0]["identifier"] == "db01.internal"
 
         assert len(body["analysis_results"]) == 1
         assert body["analysis_results"][0]["id"] == ids["analysis_result_id"]

@@ -1,0 +1,38 @@
+.query-state {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.6rem;
+  padding: 2.5rem 1rem;
+  color: var(--color-text-dim);
+  font-size: 0.9rem;
+}
+
+.query-state-spinner {
+  width: 0.9rem;
+  height: 0.9rem;
+  border-radius: 50%;
+  border: 2px solid var(--color-border);
+  border-top-color: var(--color-text-dim);
+  animation: query-state-spin 0.8s linear infinite;
+}
+
+.query-state-error {
+  color: var(--color-red);
+  flex-direction: column;
+}
+
+.query-state-error button {
+  background: transparent;
+  border: 1px solid var(--color-red-border);
+  color: var(--color-red);
+  border-radius: 6px;
+  padding: 0.3rem 0.9rem;
+  font-size: 0.85rem;
+}
+
+@keyframes query-state-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
