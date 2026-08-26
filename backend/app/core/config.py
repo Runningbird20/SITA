@@ -52,14 +52,19 @@ class Settings(BaseSettings):
     llm_temperature: float = 0.2
     llm_max_tokens: int = 1024
 
-    # Ollama (fully local, no key). qwen2.5:0.5b is the default specifically
-    # because it's small (~400MB) and fast enough to pull and run on modest
-    # hardware for a zero-friction quick-start — not because it's the
-    # recommended model for real use. For actual triage quality, switch to
-    # a 7-8B instruct model (see README's "Enabling real AI triage" for
-    # hardware guidance) — see DEF.md § Phase 6 "Recommended local model".
+    # Ollama (fully local, no key). CyberCrew/notmythos-8b is the default —
+    # an 8B-class instruct model, replacing this project's earlier
+    # quick-start-sized default (see DEF.md § Phase 6 "Recommended local
+    # model" for the history). Requires a real multi-gigabyte pull and
+    # meaningfully more RAM than a small model — see README's "Enabling
+    # real AI triage" for hardware guidance.
     ollama_base_url: str = "http://localhost:11434"
-    ollama_model: str = "qwen2.5:0.5b"
+    ollama_model: str = "CyberCrew/notmythos-8b"
+    # Ollama's own default (1.1) is often too weak to stop a small model
+    # from looping on the same list item in structured JSON output; raised
+    # here as a mitigation. Ollama-specific — not part of LLMConfig, since
+    # no other provider's API exposes this exact parameter.
+    ollama_repeat_penalty: float = 1.3
 
     # LM Studio (fully local, no key — its server speaks the same
     # OpenAI-compatible protocol OpenAIProvider already implements).

@@ -12,6 +12,11 @@ class _ExampleSchema(BaseModel):
     confidence_label: str
 
 
+class _ListFieldSchema(BaseModel):
+    hypotheses: list[str]
+    steps: list[dict]
+
+
 class TestValidateStructuredOutput:
     def test_valid_json_matching_schema(self):
         parsed, status, error = validate_structured_output(
@@ -48,3 +53,20 @@ class TestValidateStructuredOutput:
         )
         assert status == AnalysisValidationStatus.VALID
         assert "extra" not in parsed
+
+    def test_exact_duplicate_list_items_are_collapsed(self):
+        raw = (
+            '{"hypotheses": ["same hypothesis", "same hypothesis", "same hypothesis"], '
+            '"steps": [{"text": "check logs", "priority": "high"}, '
+            '{"text": "check logs", "priority": "high"}]}'
+        )
+        parsed, status, error = validate_structured_output(raw, _ListFieldSchema)
+        assert status == AnalysisValidationStatus.VALID
+        assert parsed["hypotheses"] == ["same hypothesis"]
+        assert parsed["steps"] == [{"text": "check logs", "priority": "high"}]
+
+    def test_distinct_list_items_are_preserved_in_order(self):
+        raw = '{"hypotheses": ["first", "second", "first"], "steps": []}'
+        parsed, status, error = validate_structured_output(raw, _ListFieldSchema)
+        assert status == AnalysisValidationStatus.VALID
+        assert parsed["hypotheses"] == ["first", "second"]

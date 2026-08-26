@@ -16,7 +16,9 @@ class OllamaProvider(LLMProvider):
     name = "ollama"
 
     def __init__(self, base_url: str | None = None):
-        self._base_url = base_url or get_settings().ollama_base_url
+        settings = get_settings()
+        self._base_url = base_url or settings.ollama_base_url
+        self._repeat_penalty = settings.ollama_repeat_penalty
 
     def _complete(self, prompt: str, config: LLMConfig) -> RawCompletion:
         try:
@@ -30,6 +32,7 @@ class OllamaProvider(LLMProvider):
                     "options": {
                         "temperature": config.temperature,
                         "num_predict": config.max_tokens,
+                        "repeat_penalty": self._repeat_penalty,
                     },
                 },
                 timeout=config.timeout_seconds,

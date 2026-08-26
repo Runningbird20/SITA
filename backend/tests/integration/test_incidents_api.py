@@ -78,7 +78,7 @@ class TestListAndGetIncidents:
                 incident_id=uuid.UUID(ids["incident_id"]),
                 task_type=AnalysisTaskType.INCIDENT_SUMMARY,
                 provider="ollama",
-                model="qwen2.5:0.5b",
+                model="CyberCrew/notmythos-8b",
                 prompt_version="v1",
                 raw_output='{"summary": "real summary", "key_points": []}',
                 parsed_output={"summary": "real summary", "key_points": []},

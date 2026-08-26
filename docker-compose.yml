@@ -33,12 +33,11 @@ services:
     volumes:
       - ollama_data:/root/.ollama
     # No API key required — this is a fully local model runtime.
-    # After first `docker compose up`, pull the default (small, fast,
-    # zero-friction — not the recommended model for real quality) with:
-    #   docker compose exec ollama ollama pull qwen2.5:0.5b
-    # For real triage quality, pull a 7-8B instruct model instead — see
-    # README's "Enabling real AI triage" for hardware tradeoffs:
-    #   docker compose exec ollama ollama pull llama3.1:8b-instruct-q4_K_M
+    # After first `docker compose up`, pull the default model with:
+    #   docker compose exec ollama ollama pull CyberCrew/notmythos-8b
+    # This is an 8B-class instruct model — expect a real multi-gigabyte
+    # download and meaningfully more RAM than a quick-start-sized model.
+    # See README's "Enabling real AI triage" for hardware tradeoffs.
     healthcheck:
       # Succeeds once the daemon is up, regardless of whether a model has
       # been pulled yet — pulling one is a separate, optional step, never

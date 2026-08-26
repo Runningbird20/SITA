@@ -30,6 +30,22 @@ class TestOllamaProviderComplete:
         assert completion.prompt_tokens == 10
         assert completion.completion_tokens == 5
 
+    def test_sends_repeat_penalty_from_settings(self, monkeypatch):
+        captured = {}
+
+        def fake_post(url, json, timeout):
+            captured["options"] = json["options"]
+            return httpx.Response(
+                200,
+                json={"response": "{}"},
+                request=httpx.Request("POST", url),
+            )
+
+        monkeypatch.setattr(httpx, "post", fake_post)
+        provider = OllamaProvider(base_url="http://localhost:11434")
+        provider._complete("test prompt", _config())
+        assert captured["options"]["repeat_penalty"] == provider._repeat_penalty
+
     def test_timeout_is_translated_to_llm_timeout_error(self, monkeypatch):
         def fake_post(url, json, timeout):
             raise httpx.TimeoutException("timed out")

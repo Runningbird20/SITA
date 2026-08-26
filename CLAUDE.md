@@ -43,6 +43,10 @@ Follow the pattern established by `PHASE-0.md` through `PHASE-2.md` — don't re
 
 This project's established pattern (Phase 1, Phase 2) is: write the field-level schema/contract in `Documentation/DEF.md` first, then implement against it. Keep doing this for new phases — it's cheaper to fix a relationship or a field name in a Markdown table than after a migration or an adapter exists. When asked to "define Phase N" without implementing yet, that means: write the `DEF.md` section only, check off the pure "definition" TODO.md tasks (not the "implement X" ones), and don't write implementation code.
 
+### Markdown formatting
+
+Every `.md` file in this repo must use wrapped lines: each prose paragraph is written as a single logical line (no manual line breaks at a fixed column), letting the viewer/renderer soft-wrap it to fill the available width. Never hard-wrap a paragraph across multiple source lines — that's what caused paragraphs to render at half-width instead of the full page width. This applies to prose only; headers, list items, table rows, and fenced code blocks keep their own natural line structure and are not affected by this rule.
+
 ## Engineering principles (do not violate)
 
 - **The LLM is never the sole source of truth for a security decision.** Deterministic rules own severity scoring, IOC validation, detection, correlation IDs, and baseline MITRE mappings. The LLM assists with summarization, explanation, classification, and investigation suggestions — always recorded as an `AnalysisResult` (or equivalent), always distinguishable from deterministic output, never merged into a deterministic field.
