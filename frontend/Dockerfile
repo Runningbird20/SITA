@@ -27,7 +27,7 @@ RUN npm run build
 # root) on port 8080, not the privileged 80 — see nginx.conf and DEF.md §
 # Phase 14. Not currently used by docker-compose.yml (which runs the dev
 # target for hot-reload); present for Phase 15's eventual deployment path.
-FROM nginx:1.27-alpine AS production
+FROM nginx:1.31-alpine AS production
 COPY nginx.conf /etc/nginx/nginx.conf
 COPY --from=build /app/dist /usr/share/nginx/html
 RUN chown -R nginx:nginx /usr/share/nginx/html
