@@ -35,6 +35,14 @@ services:
     # No API key required — this is a fully local model runtime.
     # After first `docker compose up`, pull the model with:
     #   docker compose exec ollama ollama pull llama3.1:8b-instruct-q4_K_M
+    healthcheck:
+      # Succeeds once the daemon is up, regardless of whether a model has
+      # been pulled yet — pulling one is a separate, optional step, never
+      # a hard dependency (see DEF.md § Phase 15).
+      test: ["CMD", "ollama", "list"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
   backend:
     build:
@@ -50,9 +58,28 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      # Deliberately not a hard dependency on ollama's health — MockProvider
+      # is the real default, and requiring Ollama to be healthy before the
+      # backend starts would make the zero-LLM-dependency default a lie at
+      # the compose-file level. See DEF.md § Phase 15.
     volumes:
       - ./backend/app:/app/app
+      # Read-only: lets scripts/demo.sh load the synthetic datasets via the
+      # existing batch-import CLI without baking data/ into the image.
+      - ./data:/data:ro
     command: ["uv", "run", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python3",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://localhost:8000/healthz', timeout=3)",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
 
   frontend:
     build:
@@ -64,10 +91,23 @@ services:
     ports:
       - "127.0.0.1:5173:5173"
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
     volumes:
       - ./frontend/src:/app/src
       - ./frontend/index.html:/app/index.html
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "require('http').get('http://localhost:5173', r => process.exit(r.statusCode < 500 ? 0 : 1)).on('error', () => process.exit(1))",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 5s
 
 volumes:
   postgres_data:

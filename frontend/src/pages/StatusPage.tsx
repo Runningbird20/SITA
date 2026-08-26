@@ -86,14 +86,13 @@ export function StatusPage() {
         <p>
           Phases 0, 1, 2, 3, 4, 5, 7, 8, 9, and 13 are checked live against the running backend (
           <code>/healthz</code>, <code>/openapi.json</code>, <code>/metrics</code>) — green means
-          "Working," verified just now. Phases 6, 10, 11, 12, and 14 have no REST resource of their
-          own to check (the LLM provider abstraction, this dashboard itself, the test suite, the
-          evaluation/benchmark CLIs, and security hardening that touches every existing endpoint
-          rather than adding one of its own aren't domain objects Phase 9 exposes) — yellow
-          "Implemented" is asserted from each one's own test suite and report, not guessed. Red
-          means a live check ran and failed. Phase 15 has no built surface at all yet, shown gray
-          rather than guessed at. This page is now a standing diagnostic — the real product lives
-          behind the nav.
+          "Working," verified just now. Phases 6, 10, 11, 12, 14, and 15 have no REST resource of
+          their own to check (the LLM provider abstraction, this dashboard itself, the test suite,
+          the evaluation/benchmark CLIs, security hardening that touches every existing endpoint
+          rather than adding one of its own, and deployment tooling aren't domain objects Phase 9
+          exposes) — yellow "Implemented" is asserted from each one's own test suite and report, not
+          guessed. Red means a live check ran and failed. Every phase in the roadmap has now
+          shipped. This page is now a standing diagnostic — the real product lives behind the nav.
         </p>
       </footer>
     </div>
