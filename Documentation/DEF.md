@@ -1709,3 +1709,37 @@ Verified live against a real running Docker backend, not just `pytest`: security
 Backend suite after this phase: 383 passed, 1 skipped (the opportunistic live-Ollama test), 98% line coverage — every new/modified module at 100%. Frontend: 20 tests passing (9 new), lint/format/build clean. Both `pip-audit` and `npm audit --audit-level=high` clean, now blocking in CI.
 
 See [Documentation/PHASE-14.md](PHASE-14.md) for the full narrative and `TODO.md` Phase 14 for the itemized checklist.
+
+---
+
+# Phase 15: Deployment
+
+## Scope
+
+Not a new schema or contract — this phase's "definition" is the deployment contract itself: what `docker-compose.yml` guarantees about service readiness, and what the bootstrap script guarantees about idempotency and end state.
+
+## `docker-compose.yml`: health-checked, not just started
+
+Before this phase, only `postgres` had a `healthcheck`; `backend` and `frontend` had none, and `depends_on` relationships used the default `service_started` condition — "the container process began," not "the service inside it can actually answer a request." `docker compose up --wait` (what the bootstrap script uses) would therefore return as soon as containers merely *started*, before the backend had necessarily finished binding its port. Closed here: `backend` gets a healthcheck against its own `/healthz` (via `python3 -c "urllib.request.urlopen(...)"` — no extra tooling needed, `uv:python3.12-bookworm-slim` already has `python3` on `PATH`), `ollama` gets one against `ollama list` (succeeds once the daemon is up, regardless of whether a model has been pulled yet — pulling a model is a separate, optional, documented step, never a hard dependency), and `frontend` gets one against its own Vite dev server via Node's built-in `http` module (no `curl`/`wget` in `node:22-slim`). `frontend`'s `depends_on: backend` was upgraded to `condition: service_healthy`. `backend` deliberately does **not** hard-depend on `ollama`'s health — `MockProvider` is the real default, and requiring Ollama to be healthy before the backend starts would make the zero-LLM-dependency default a lie at the compose-file level.
+
+A new bind mount, `./data:/data:ro`, gives the backend container read-only access to `data/synthetic_events/` at runtime — it wasn't reachable inside the container at all before this phase (`backend/Dockerfile` only ever `COPY`s `app/`, `alembic/`, `alembic.ini`; the top-level `data/` directory was never part of the image or any existing volume). This is what makes the bootstrap script's data-loading step possible without either baking the dataset into the image or rebuilding it every time a new scenario file is added.
+
+## `scripts/demo.sh`: the one-shot bootstrap
+
+Brings up the full stack, applies migrations, loads every file under `data/synthetic_events/` via the existing batch-import CLI (`app.ingestion.cli`, run inside the container against the new bind mount — not the REST ingestion endpoint, which would mean dozens of individual HTTP calls fighting Phase 14's own ingestion rate limit for no benefit), loads the vendored MITRE ATT&CK technique dataset (`app.mitre.cli` — a real gap this phase's own screenshot-based verification caught: the pipeline-trigger endpoint's MITRE stage only *links* alerts to technique rows that already exist, it never loads them, by Phase 8's own self-healing design — without this step the MITRE library page and every incident's technique list stay empty), and triggers one real pipeline run (`POST /api/v1/pipeline/run`) so a reviewer sees a populated, already-triaged, MITRE-mapped dashboard, not an empty one.
+
+**Idempotent by a real check, not by accident**: before loading data, the script queries `GET /api/v1/incidents?limit=1` and reads `total` from the response. A non-zero total means data was already loaded on a previous run — the script skips straight to printing the dashboard URL rather than re-ingesting everything and creating duplicate events/alerts (ingestion itself has no dedup, and detection's own re-run behavior is the documented `[[detection-run-idempotency]]` limitation from Phase 3 — the script sidesteps needing to solve that by simply not re-triggering it when there's evidence a previous run already did).
+
+**Does not touch `LLM_PROVIDER`**: the script runs with whatever `.env` already has (creating one from `.env.example` — `LLM_PROVIDER=mock` — if none exists), never silently switching a reviewer into `ollama` mode or attempting to pull an 8B model automatically. Pulling a model is slow (multiple GB) and a surprise a one-shot "see the demo" script shouldn't spring on someone; enabling real LLM triage stays a separate, clearly documented, opt-in step in the README, unchanged from how it worked before this phase.
+
+## Phase 15 Status: implemented
+
+New: `scripts/demo.sh`, `docs/images/*.png` (four real screenshots). Modified: `docker-compose.yml` (health checks on `backend`/`ollama`/`frontend`, `frontend`'s `depends_on` upgraded to `condition: service_healthy`, the new `./data:/data:ro` bind mount on `backend`), `README.md` (the one-shot script as the lead quick-start path, an architecture diagram, screenshots, an "Enabling real AI triage" section, version requirements for the native-dev fallback).
+
+**One real bug caught by this phase's own verification, not assumed away**: the bootstrap script's first version relied solely on `POST /api/v1/pipeline/run` to populate the dashboard, but that endpoint's MITRE stage only links alerts to already-loaded technique rows — it never loads the vendored dataset itself (a deliberate, documented, self-healing property of `app/mitre/pipeline.py` since Phase 8). Found by actually looking at a screenshot of the freshly-bootstrapped `/mitre` page (empty) rather than trusting that "the pipeline ran" meant "everything is populated." Fixed by adding `app.mitre.cli` as its own step before the pipeline trigger; re-verified clean from scratch: 6 techniques loaded, 17 alert-to-technique mappings created.
+
+Verified end to end, three times, from a genuinely clean state (containers down, database volume removed) as this bug was found and fixed: the final, authoritative run — `LLM_PROVIDER=mock`, the real default — completed in 55.7 seconds and produced 10 incidents, 17 alerts, 6 MITRE techniques, with the multi-stage scenario correctly reconstructed as one 4-alert incident carrying 4 real technique mappings. A second, from-scratch run with a real (small, `qwen2.5:0.5b`) local Ollama model captured genuinely AI-generated triage content for the README's incident-detail screenshot — including a real, disclosed model quirk (a hallucinated "ransomware" classification, consistent with the same model's behavior already observed in Phase 12) — one full triage pass took ~5.5 minutes for 60 real LLM calls, explicitly not the path a fresh clone takes by default. Re-running the script against already-populated data correctly detected existing incidents via a live API check and skipped re-seeding in ~3 seconds, with no duplicates created.
+
+This phase touched no application code — `docker-compose.yml`, `scripts/demo.sh`, and documentation only — so the full backend/frontend test suites were re-run to confirm, not assumed, that nothing regressed.
+
+See [Documentation/PHASE-15.md](PHASE-15.md) for the full narrative and `TODO.md` Phase 15 for the itemized checklist.

@@ -418,19 +418,19 @@ SITA/
 
 **Tasks**
 
-- [ ] Finalize `docker-compose.yml` covering backend, frontend, Postgres, and Ollama with correct service dependencies/health checks
-- [ ] Document installing dependencies (Docker, and native fallback: `uv`, Node version)
-- [ ] Document starting PostgreSQL (via Compose) and running migrations
-- [ ] Document starting Ollama (via Compose) and pulling the recommended model(s)
-- [ ] Document starting the backend (Compose and native dev-server paths)
-- [ ] Document starting the frontend (Compose and native dev-server paths)
-- [ ] Document loading synthetic security events (seed script or API import)
-- [ ] Document viewing the dashboard (URL, default demo flow to click through)
-- [ ] `[HIGH VALUE]` Provide a single one-shot bootstrap script/command (e.g., `make demo` or `./scripts/demo.sh`) that brings up the stack, applies migrations, loads synthetic data, and runs the pipeline so a reviewer sees a populated dashboard immediately
-- [ ] Add architecture diagram and screenshots to the root README
-- [ ] Verify the full quick-start works on a clean checkout (no leftover local state assumptions)
+- [x] Finalize `docker-compose.yml` covering backend, frontend, Postgres, and Ollama with correct service dependencies/health checks — real health checks added to `backend` (`/healthz`), `ollama` (`ollama list`), and `frontend` (its own dev server), not just `postgres`; `frontend`'s `depends_on` upgraded to `condition: service_healthy`. See [DEF.md § Phase 15](Documentation/DEF.md#phase-15-deployment)
+- [x] Document installing dependencies (Docker, and native fallback: `uv`, Node version) — README's Quick Start states the Docker/Compose v2 requirement; Local Development states `uv` (manages its own Python 3.12+) and Node 22+
+- [x] Document starting PostgreSQL (via Compose) and running migrations — covered by both `scripts/demo.sh` (automatic) and the "doing it by hand" manual sequence in the README
+- [x] Document starting Ollama (via Compose) and pulling the recommended model(s) — README's "Enabling real AI triage" section
+- [x] Document starting the backend (Compose and native dev-server paths) — both covered, unchanged from Phase 0/README, reorganized around the new one-shot script
+- [x] Document starting the frontend (Compose and native dev-server paths) — same
+- [x] Document loading synthetic security events (seed script or API import) — `scripts/demo.sh` loads every file automatically; the manual CLI/REST paths remain documented for loading individual files
+- [x] Document viewing the dashboard (URL, default demo flow to click through) — README Quick Start prints the dashboard/status/docs URLs directly from the script's own output
+- [x] `[HIGH VALUE]` Provide a single one-shot bootstrap script/command (e.g., `make demo` or `./scripts/demo.sh`) that brings up the stack, applies migrations, loads synthetic data, and runs the pipeline so a reviewer sees a populated dashboard immediately — `scripts/demo.sh`, verified end to end from a clean state in 55.7 seconds (real default, `LLM_PROVIDER=mock`); idempotent re-runs confirmed safe
+- [x] Add architecture diagram and screenshots to the root README — an ASCII diagram (matching `docs/architecture.md`'s) plus four real screenshots (`docs/images/`) captured from a stack the script itself brought up
+- [x] Verify the full quick-start works on a clean checkout (no leftover local state assumptions) — run three times from a genuinely clean state (containers down, database volume removed) over the course of this phase; caught and fixed a real gap (MITRE technique data never loaded by the pipeline endpoint alone) via this exact verification
 
-**Definition of Done:** A developer with only Docker installed can clone the repo, run one documented command sequence (ideally one script), and see a populated dashboard with correlated incidents and AI-generated triage within minutes.
+**Definition of Done:** A developer with only Docker installed can clone the repo, run one documented command sequence (ideally one script), and see a populated dashboard with correlated incidents and AI-generated triage within minutes. Confirmed — see [DEF.md § Phase 15 Status](Documentation/DEF.md#phase-15-status-implemented) and [PHASE-15.md](Documentation/PHASE-15.md).
 
 ---
 

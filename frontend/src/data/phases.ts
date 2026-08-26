@@ -32,8 +32,6 @@ function liveCheck(isWorking: (status: BackendStatus) => boolean): Phase["evalua
   };
 }
 
-const notImplemented: Phase["evaluate"] = () => "not_implemented";
-
 const staticImplemented: Phase["evaluate"] = () => "implemented_static";
 
 export const PHASES: Phase[] = [
@@ -204,6 +202,12 @@ export const PHASES: Phase[] = [
     id: 15,
     title: "Deployment",
     goal: "Anyone can clone the repo and have the full system running locally within a few commands.",
-    evaluate: notImplemented,
+    // Deployment tooling (docker-compose.yml health checks, scripts/demo.sh,
+    // README/screenshots) — no REST resource of its own to check. Genuinely
+    // complete and verified for real: scripts/demo.sh run from a clean
+    // state, end to end, in under a minute with the real default
+    // (LLM_PROVIDER=mock), including a caught-and-fixed real gap (MITRE
+    // technique data). See Documentation/PHASE-15.md.
+    evaluate: staticImplemented,
   },
 ];

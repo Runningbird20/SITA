@@ -14,6 +14,47 @@ for the field-level data model and contracts, [docs/architecture.md](docs/archit
 for a system overview, and [Documentation/](Documentation/) for a per-phase
 narrative of what was built and why (`PHASE-0.md`, `PHASE-1.md`, ...).
 
+```
+Event Source(s) → Ingestion → Normalization → Detection Engine → Alert
+                                                     │
+                                                     ▼
+                                          IOC Extraction, Correlation
+                                                     │
+                                                     ▼
+                                                 Incident
+                                                     │
+                                    ┌────────────────┴────────────────┐
+                                    ▼                                 ▼
+                          MITRE ATT&CK Mapping              AI Triage (LLMProvider)
+                            (deterministic)                  (Ollama / Mock)
+                                    │                                 │
+                                    └────────────────┬────────────────┘
+                                                     ▼
+                                            REST API (FastAPI)
+                                                     │
+                                                     ▼
+                                         Frontend Dashboard (React)
+```
+
+*(Full narrative version with per-layer detail: [docs/architecture.md](docs/architecture.md).)*
+
+## Screenshots
+
+| Overview | Incident detail (AI-generated triage) |
+|---|---|
+| ![Overview dashboard](docs/images/overview.png) | ![Incident detail with AI analysis panel](docs/images/incident-detail.png) |
+
+| Incident list | MITRE ATT&CK technique library |
+|---|---|
+| ![Incident list](docs/images/incidents.png) | ![MITRE technique library](docs/images/mitre.png) |
+
+The AI analysis panel above was captured with `LLM_PROVIDER=ollama` running a
+small local model — the project's actual zero-setup default is
+`LLM_PROVIDER=mock`, which populates every other part of the dashboard
+identically but shows an unvalidated placeholder in the AI panel instead of a
+real model response (see [docs/architecture.md § Core Principle](docs/architecture.md#core-principle-deterministic-vs-ai-generated)
+and `## Enabling real AI triage` below for how to turn it on).
+
 ## Stack
 
 | Layer | Choice |
@@ -30,33 +71,100 @@ narrative of what was built and why (`PHASE-0.md`, `PHASE-1.md`, ...).
 
 ## Quick Start (Docker)
 
-Requires only Docker.
+**Requires only [Docker](https://docs.docker.com/get-docker/)** (with Compose
+v2, bundled with current Docker Desktop / Docker Engine installs — check with
+`docker compose version`). Nothing else — no local Python, Node, or `uv`
+install needed for this path.
+
+```bash
+git clone <this repo> && cd SITA
+./scripts/demo.sh
+```
+
+That's the whole quick start — one script, no other setup. It creates `.env`
+from `.env.example` if you don't already have one, brings up Postgres,
+Ollama, the backend, and the frontend (waiting on each service's own health
+check, not just "the container started"), applies database migrations,
+loads the checked-in synthetic security event datasets
+([data/synthetic_events/](data/synthetic_events/)) plus the vendored MITRE
+ATT&CK technique library, and runs the full detection → correlation →
+AI-triage pipeline — so the dashboard is already populated with real
+correlated, MITRE-mapped incidents the first time you open it. Safe to
+re-run: it checks for existing incidents via the real API before reloading
+data, so running it twice doesn't create duplicates.
+
+```
+==> Starting the stack (postgres, ollama, backend, frontend)...
+==> Applying database migrations...
+==> Loading synthetic security event data...
+==> Loading the vendored MITRE ATT&CK technique dataset...
+==> Running the full pipeline (detection, IOC extraction, MITRE mapping, correlation, AI triage)...
+
+Dashboard:     http://localhost:5173
+Build status:  http://localhost:5173/status
+API docs:      http://localhost:8000/docs
+```
+
+Runs in well under two minutes on a typical laptop (`LLM_PROVIDER=mock`,
+the default — no model download or LLM inference in the critical path).
+
+### Doing it by hand, or understanding what the script does
+
+Every step `scripts/demo.sh` automates is also a plain, individually useful
+command:
 
 ```bash
 cp .env.example .env
-docker compose up --build
+docker compose up --build -d --wait   # waits for every service's healthcheck, not just "started"
+
+# Apply database migrations (first run only, or after pulling new model changes)
+docker compose exec backend uv run alembic upgrade head
+
+# Load a synthetic dataset (repeat for whichever files you want)
+docker compose exec backend uv run python -m app.ingestion.cli auth /data/synthetic_events/auth/brute_force.jsonl
+
+# Load the vendored MITRE ATT&CK technique dataset (once — the pipeline
+# trigger below only links to techniques that already exist, it doesn't
+# load them; see docs/architecture.md)
+docker compose exec backend uv run python -m app.mitre.cli
+
+# Run the full deterministic-then-AI pipeline against whatever's been ingested
+curl -X POST http://localhost:8000/api/v1/pipeline/run
 ```
 
 This starts Postgres, Ollama, the FastAPI backend (http://localhost:8000,
 docs at `/docs`), and the React frontend (http://localhost:5173).
 
-Apply database migrations (first run only, or after pulling new model changes):
+### Enabling real AI triage
+
+With `LLM_PROVIDER=mock` (the default in `.env.example`), the full app runs
+with zero LLM network dependency — every deterministic part of the pipeline
+(detection, IOC extraction, correlation, MITRE mapping) is fully populated,
+and the AI analysis panel shows an unvalidated placeholder rather than a real
+model response. To get real AI-generated summaries, severity explanations,
+and investigation suggestions:
 
 ```bash
-docker compose exec backend uv run alembic upgrade head
-```
-
-Pull a local model for Ollama (first run only):
-
-```bash
+# Pull a local model for Ollama (first run only — several GB, can take a while)
 docker compose exec ollama ollama pull llama3.1:8b-instruct-q4_K_M
 ```
 
-Then set `LLM_PROVIDER=ollama` in `.env` and restart the backend service to
-enable AI-assisted triage. With `LLM_PROVIDER=mock` (the default), the full
-app runs with no LLM dependency at all.
+Then set `LLM_PROVIDER=ollama` in `.env` and recreate the backend service
+(`docker compose up -d --force-recreate backend`) to pick up the change. To
+regenerate AI analysis for incidents that already have (mock-invalid)
+results on file, force a fresh run:
+
+```bash
+docker compose exec backend uv run python -m app.triage.cli --force
+```
 
 ## Local Development (without Docker)
+
+Requires [uv](https://docs.astral.sh/uv/) (which manages the Python 3.12+
+interpreter itself — no separate Python install needed) for the backend, and
+[Node.js 22+](https://nodejs.org/) for the frontend. Postgres and Ollama are
+optional for native dev — SQLite and `LLM_PROVIDER=mock` cover both by
+default.
 
 ### Backend
 
@@ -96,8 +204,9 @@ accident).
 A collection of realistic synthetic events (benign and attack-pattern, per
 source type) lives under [data/synthetic_events/](data/synthetic_events/),
 including a full multi-stage attack scenario
-(`scenarios/brute_force_to_lateral_movement/`) meant to be reconstructed as a
-single incident once correlation (Phase 5) exists. Load any file with the
+(`scenarios/brute_force_to_lateral_movement/`) that the correlation pipeline
+reconstructs as a single incident (`scripts/demo.sh` loads every file here
+automatically — see Quick Start above). Load any file individually with the
 batch-import CLI:
 
 ```bash
@@ -188,17 +297,24 @@ metrics registry scraped at `GET /metrics`; a catch-all error handler
 giving every unhandled exception the same structured envelope and a
 traceback in the logs; and `/healthz` extended with LLM reachability —
 see [docs/architecture.md § Observability](docs/architecture.md#observability)),
-and Phase 14 (security hardening — a single opt-in shared bearer token
-gating the API, disabled by default so the quick-start below needs no
+Phase 14 (security hardening — a single opt-in shared bearer token
+gating the API, disabled by default so the quick-start above needs no
 setup; two-tier in-memory rate limiting on ingestion and the
 LLM-triggering endpoint; strict LLM-output schema enforcement
 (`extra="forbid"`) as the real backstop behind a documented, honestly-scoped
 prompt-injection mitigation; standard security headers; a non-root
 production container for the frontend; and blocking dependency scanning
-in CI — see [Documentation/PHASE-14.md](Documentation/PHASE-14.md)).
+in CI — see [Documentation/PHASE-14.md](Documentation/PHASE-14.md)), and
+Phase 15 (deployment — a health-checked `docker-compose.yml` (every
+service, not just Postgres) and the one-shot `scripts/demo.sh` bootstrap
+above, which brings up the full stack, applies migrations, loads the
+synthetic datasets, and runs the real pipeline so a fresh clone shows a
+populated, triaged dashboard within about a minute — verified end to end
+from a genuinely clean state, including that re-running it is a safe
+no-op — see [Documentation/PHASE-15.md](Documentation/PHASE-15.md)).
 See [Documentation/](Documentation/) for the detailed report on each
-completed phase, and [TODO.md](TODO.md) for the full roadmap and what's
-next (Phase 15: Deployment).
+completed phase, and [TODO.md](TODO.md) for the full roadmap — every
+phase of it is now complete.
 
 ## License
 
