@@ -53,7 +53,7 @@ class GroundingReport:
         }
 
 
-def _real_identifiers(incident: Incident) -> set[str]:
+def real_identifiers(incident: Incident) -> set[str]:
     """Every real entity/IOC identifier actually present in this incident —
     what a non-hallucinating summary should be drawing from.
     """
@@ -66,7 +66,7 @@ def _real_identifiers(incident: Incident) -> set[str]:
     return identifiers
 
 
-def _mentions_a_real_identifier(text: str, identifiers: set[str]) -> bool:
+def mentions_a_real_identifier(text: str, identifiers: set[str]) -> bool:
     lowered = text.lower()
     return any(identifier in lowered for identifier in identifiers)
 
@@ -77,7 +77,7 @@ def evaluate_grounding(
     mitre_rollup: list[IncidentTechniqueEntry],
 ) -> GroundingReport:
     report = GroundingReport()
-    identifiers = _real_identifiers(incident)
+    identifiers = real_identifiers(incident)
     rule_technique_ids = {entry.technique_id for entry in mitre_rollup if "rule" in entry.sources}
 
     for result in results:
@@ -87,7 +87,7 @@ def evaluate_grounding(
         if result.task_type == "incident_summary":
             text = str(result.parsed_output.get("summary", ""))
             report.text_outputs_checked += 1
-            if _mentions_a_real_identifier(text, identifiers):
+            if mentions_a_real_identifier(text, identifiers):
                 report.text_outputs_grounded += 1
             else:
                 report.ungrounded_examples.append(text)
@@ -95,10 +95,23 @@ def evaluate_grounding(
         elif result.task_type == "investigation_hypothesis":
             for hypothesis in result.parsed_output.get("hypotheses", []):
                 report.text_outputs_checked += 1
-                if _mentions_a_real_identifier(str(hypothesis), identifiers):
+                if mentions_a_real_identifier(str(hypothesis), identifiers):
                     report.text_outputs_grounded += 1
                 else:
                     report.ungrounded_examples.append(str(hypothesis))
+
+        elif result.task_type == "attack_classification":
+            # Added post-roadmap alongside the triage pipeline's
+            # grounding-aware retry (see DEF.md § 8 AnalysisResult,
+            # "Grounding-aware retry") — this is exactly the field that
+            # produced the confirmed hallucinated "ransomware" finding, so
+            # measurement now covers what the retry logic acts on.
+            text = str(result.parsed_output.get("rationale", ""))
+            report.text_outputs_checked += 1
+            if mentions_a_real_identifier(text, identifiers):
+                report.text_outputs_grounded += 1
+            else:
+                report.ungrounded_examples.append(text)
 
         elif result.task_type == "mitre_suggestion":
             techniques = result.parsed_output.get("techniques", [])

@@ -8,6 +8,7 @@ unless `force=True`. Bumping a prompt's version is the intended way to
 force regeneration of just that task.
 """
 
+import logging
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -17,6 +18,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.evaluation.ai_grounding import mentions_a_real_identifier, real_identifiers
 from app.llm.base import LLMProvider
 from app.llm.registry import default_llm_config, get_llm_provider
 from app.llm.types import LLMConfig, LLMRequest
@@ -44,6 +46,38 @@ from app.triage.schemas import (
     MitreSuggestionOutput,
     SeverityExplanationOutput,
 )
+
+logger = logging.getLogger(__name__)
+
+# Task types with a groundable free-text field, and which field to check —
+# added post-roadmap after Phase 12's evaluation measured a 0% grounding
+# rate and a hallucinated "ransomware" classification. See DEF.md § 8
+# AnalysisResult, "Grounding-aware retry".
+_GROUNDABLE_TEXT_FIELDS: dict[AnalysisTaskType, str] = {
+    AnalysisTaskType.INCIDENT_SUMMARY: "summary",
+    AnalysisTaskType.ATTACK_CLASSIFICATION: "rationale",
+}
+
+_GROUNDING_RETRY_SUFFIX = (
+    "\n\nYour previous answer for this task didn't reference any of the "
+    "incident's actual identifiers (a specific host, IP, username, or similar "
+    "value listed in the incident data above). Try again, and make sure your "
+    "answer cites at least one specific identifier from the data."
+)
+
+
+def _is_grounded(task_type: AnalysisTaskType, parsed_output: dict, identifiers: set[str]) -> bool:
+    """True if this task type has nothing to check, or if its groundable
+    text actually cites a real identifier. False (ungrounded) triggers one
+    corrective retry in run_triage() below.
+    """
+    if task_type == AnalysisTaskType.INVESTIGATION_HYPOTHESIS:
+        hypotheses = parsed_output.get("hypotheses", [])
+        return any(mentions_a_real_identifier(str(h), identifiers) for h in hypotheses)
+    field = _GROUNDABLE_TEXT_FIELDS.get(task_type)
+    if field is None:
+        return True
+    return mentions_a_real_identifier(str(parsed_output.get(field, "")), identifiers)
 
 
 @dataclass(frozen=True)
@@ -183,6 +217,7 @@ def run_triage(
 
     for incident in incidents:
         context_block = render_context_block(build_incident_context(incident))
+        identifiers = real_identifiers(incident)
 
         for task in TASKS:
             if not force and _existing_result(db, incident, task) is not None:
@@ -196,6 +231,32 @@ def run_triage(
                 prompt_version=task.prompt_version,
             )
             response = provider.generate(request, config)
+
+            grounding_retry_used = False
+            if response.validation_status == AnalysisValidationStatus.VALID and not _is_grounded(
+                task.task_type, response.parsed_output, identifiers
+            ):
+                grounding_retry_used = True
+                retry_request = LLMRequest(
+                    task_type=task.task_type,
+                    prompt=request.prompt + _GROUNDING_RETRY_SUFFIX,
+                    response_schema=task.response_schema,
+                    prompt_version=task.prompt_version,
+                )
+                retry_response = provider.generate(retry_request, config)
+                logger.info(
+                    "grounding-aware retry",
+                    extra={
+                        "incident_id": str(incident.id),
+                        "task_type": task.task_type.value,
+                        "retry_validation_status": retry_response.validation_status.value,
+                    },
+                )
+                # Only replace the original response if the retry is itself
+                # schema-valid — a broken retry falls back to the original
+                # (ungrounded but valid) response, never to nothing.
+                if retry_response.validation_status == AnalysisValidationStatus.VALID:
+                    response = retry_response
 
             result = AnalysisResult(
                 incident_id=incident.id,
@@ -211,6 +272,7 @@ def run_triage(
                 latency_ms=response.latency_ms,
                 prompt_tokens=response.prompt_tokens,
                 completion_tokens=response.completion_tokens,
+                grounding_retry_used=grounding_retry_used,
             )
             db.add(result)
             db.flush()

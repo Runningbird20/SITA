@@ -117,3 +117,8 @@ class RecommendationStatus(StrEnum):
     ACKNOWLEDGED = "acknowledged"
     DISMISSED = "dismissed"
     COMPLETED = "completed"
+
+
+class FeedbackRating(StrEnum):
+    UP = "up"
+    DOWN = "down"

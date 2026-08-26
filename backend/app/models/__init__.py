@@ -5,6 +5,7 @@ resolve correctly (for SQLAlchemy's mapper configuration).
 
 from app.db.session import Base
 from app.models.alert import Alert
+from app.models.analysis_feedback import AnalysisFeedback
 from app.models.analysis_result import AnalysisResult
 from app.models.associations import (
     AlertEntity,
@@ -28,6 +29,7 @@ __all__ = [
     "Alert",
     "AlertEntity",
     "AlertMitreMapping",
+    "AnalysisFeedback",
     "AnalysisResult",
     "Detection",
     "Entity",

@@ -5,6 +5,7 @@ from sqlalchemy import select
 
 from app.correlation.pipeline import run_correlation
 from app.detection.pipeline import run_detection
+from app.ioc.pipeline import run_ioc_extraction
 from app.llm.exceptions import LLMProviderError, LLMTimeoutError
 from app.llm.mock_provider import MockProvider
 from app.llm.registry import default_llm_config
@@ -26,7 +27,12 @@ from tests.conftest import BRUTE_FORCE_NOW
 
 _VALID_COMPLETIONS = [
     RawCompletion(
-        text=json.dumps({"summary": "Brute force attempt.", "key_points": ["10 failed logins"]})
+        text=json.dumps(
+            {
+                "summary": "Brute force attempt from 198.51.100.1.",
+                "key_points": ["10 failed logins from 198.51.100.1"],
+            }
+        )
     ),
     RawCompletion(text=json.dumps({"explanation": "High severity due to repeated failures."})),
     RawCompletion(
@@ -34,12 +40,19 @@ _VALID_COMPLETIONS = [
             {
                 "category": "credential access",
                 "kill_chain_stage": "initial access",
-                "rationale": "Password guessing.",
+                "rationale": "Password guessing from 198.51.100.1.",
             }
         )
     ),
     RawCompletion(
-        text=json.dumps({"hypotheses": ["Targeted attack", "Compromised credential reuse"]})
+        text=json.dumps(
+            {
+                "hypotheses": [
+                    "Targeted attack from 198.51.100.1",
+                    "Compromised credential reuse",
+                ]
+            }
+        )
     ),
     RawCompletion(
         text=json.dumps(
@@ -73,6 +86,14 @@ def _make_incident(db_session, brute_force_events) -> Incident:
     brute_force_events()
     db_session.commit()
     run_detection(db_session)
+    db_session.commit()
+    # IOC extraction, matching DEF.md's recommended pipeline order
+    # (detect -> extract IOCs -> correlate) — without it, `real_identifiers()`
+    # only ever sees the host entity, never the attacker IP, which the
+    # grounding-aware retry in run_triage() then correctly (but
+    # inconveniently, for a fixture that doesn't mention the IP) flags as
+    # ungrounded.
+    run_ioc_extraction(db_session)
     db_session.commit()
     run_correlation(db_session)
     db_session.commit()
@@ -235,6 +256,102 @@ class TestRunTriage:
 
         assert report.incidents_processed == 0
         assert db_session.scalars(select(AnalysisResult)).all() == []
+
+
+class TestGroundingAwareRetry:
+    """Post-roadmap addition (WHATNEXT.md 'AI quality' item, DEF.md § 8
+    AnalysisResult 'Grounding-aware retry'): a VALID but ungrounded
+    incident_summary/investigation_hypothesis/attack_classification
+    response is regenerated once before being persisted.
+    """
+
+    def test_ungrounded_first_response_is_retried_and_replaced(
+        self, db_session, brute_force_events
+    ):
+        _make_incident(db_session, brute_force_events)
+        # incident_summary: first attempt mentions nothing real, second
+        # (the retry) mentions the real attacker IP.
+        completions = [
+            RawCompletion(text=json.dumps({"summary": "Suspicious activity.", "key_points": []})),
+            RawCompletion(
+                text=json.dumps(
+                    {"summary": "Attack from 198.51.100.1.", "key_points": ["198.51.100.1"]}
+                )
+            ),
+            *_VALID_COMPLETIONS[1:],
+        ]
+        provider = MockProvider(responses=completions)
+
+        run_triage(db_session, provider=provider, config=default_llm_config())
+        db_session.commit()
+
+        result = db_session.scalars(
+            select(AnalysisResult).where(
+                AnalysisResult.task_type == AnalysisTaskType.INCIDENT_SUMMARY
+            )
+        ).one()
+        assert result.grounding_retry_used is True
+        assert result.validation_status == AnalysisValidationStatus.VALID
+        assert result.parsed_output["summary"] == "Attack from 198.51.100.1."
+
+    def test_grounded_first_response_is_not_retried(self, db_session, brute_force_events):
+        _make_incident(db_session, brute_force_events)
+        provider = MockProvider(responses=list(_VALID_COMPLETIONS))
+
+        run_triage(db_session, provider=provider, config=default_llm_config())
+        db_session.commit()
+
+        result = db_session.scalars(
+            select(AnalysisResult).where(
+                AnalysisResult.task_type == AnalysisTaskType.INCIDENT_SUMMARY
+            )
+        ).one()
+        assert result.grounding_retry_used is False
+        assert result.parsed_output["summary"] == "Brute force attempt from 198.51.100.1."
+
+    def test_invalid_retry_falls_back_to_the_original_ungrounded_response(
+        self, db_session, brute_force_events
+    ):
+        _make_incident(db_session, brute_force_events)
+        completions = [
+            RawCompletion(text=json.dumps({"summary": "Suspicious activity.", "key_points": []})),
+            RawCompletion(text="not json"),  # the retry itself fails validation
+            *_VALID_COMPLETIONS[1:],
+        ]
+        provider = MockProvider(responses=completions)
+
+        run_triage(db_session, provider=provider, config=default_llm_config())
+        db_session.commit()
+
+        result = db_session.scalars(
+            select(AnalysisResult).where(
+                AnalysisResult.task_type == AnalysisTaskType.INCIDENT_SUMMARY
+            )
+        ).one()
+        assert result.grounding_retry_used is True
+        assert result.validation_status == AnalysisValidationStatus.VALID
+        assert result.parsed_output["summary"] == "Suspicious activity."
+
+    def test_non_groundable_task_types_are_never_retried(self, db_session, brute_force_events):
+        # severity_explanation, investigation_steps, and mitre_suggestion
+        # have no groundable free-text field checked here — an ungrounded
+        # explanation must not trigger a retry.
+        _make_incident(db_session, brute_force_events)
+        completions = list(_VALID_COMPLETIONS)
+        completions[1] = RawCompletion(
+            text=json.dumps({"explanation": "Generic severity explanation, no specifics."})
+        )
+        provider = MockProvider(responses=completions)
+
+        run_triage(db_session, provider=provider, config=default_llm_config())
+        db_session.commit()
+
+        result = db_session.scalars(
+            select(AnalysisResult).where(
+                AnalysisResult.task_type == AnalysisTaskType.SEVERITY_EXPLANATION
+            )
+        ).one()
+        assert result.grounding_retry_used is False
 
 
 class TestLLMUnavailableDegradesGracefully:

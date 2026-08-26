@@ -1,6 +1,6 @@
 import uuid
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Response
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -8,8 +8,10 @@ from app.api.deps import PageParams, apply_sort, pagination_params
 from app.core.config import get_settings
 from app.core.exceptions import InvalidQueryParameterError, NotFoundError
 from app.db.session import get_db
+from app.models.analysis_feedback import AnalysisFeedback
 from app.models.analysis_result import AnalysisResult
 from app.models.enums import AnalysisTaskType
+from app.schemas.analysis_feedback import AnalysisFeedbackCreate, AnalysisFeedbackRead
 from app.schemas.analysis_result import AnalysisResultRead
 from app.schemas.pagination import Page
 
@@ -56,3 +58,48 @@ def get_analysis_result(
     if result is None:
         raise NotFoundError("AnalysisResult", analysis_result_id)
     return result
+
+
+@router.put("/{analysis_result_id}/feedback", response_model=AnalysisFeedbackRead)
+def set_analysis_feedback(
+    analysis_result_id: uuid.UUID,
+    body: AnalysisFeedbackCreate,
+    db: Session = Depends(get_db),
+) -> AnalysisFeedback:
+    """Record an analyst's thumbs up/down on one AI analysis. Idempotent
+    upsert — one vote per AnalysisResult; casting a new one overwrites the
+    old rating rather than accumulating a history. See DEF.md § Phase 9,
+    'Analysis feedback (post-roadmap)'.
+    """
+    result = db.get(AnalysisResult, analysis_result_id)
+    if result is None:
+        raise NotFoundError("AnalysisResult", analysis_result_id)
+
+    if result.feedback is not None:
+        result.feedback.rating = body.rating
+        feedback = result.feedback
+    else:
+        feedback = AnalysisFeedback(analysis_result_id=analysis_result_id, rating=body.rating)
+        db.add(feedback)
+
+    db.commit()
+    db.refresh(feedback)
+    return feedback
+
+
+@router.delete("/{analysis_result_id}/feedback", status_code=204)
+def clear_analysis_feedback(
+    analysis_result_id: uuid.UUID, db: Session = Depends(get_db)
+) -> Response:
+    """Remove a previously-cast vote (un-voting), if any. No-op, not an
+    error, if there was never a vote to clear.
+    """
+    result = db.get(AnalysisResult, analysis_result_id)
+    if result is None:
+        raise NotFoundError("AnalysisResult", analysis_result_id)
+
+    if result.feedback is not None:
+        db.delete(result.feedback)
+        db.commit()
+
+    return Response(status_code=204)

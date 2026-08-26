@@ -225,9 +225,12 @@ The envelope for every piece of LLM output — the single place "AI said X" is r
 | `confidence` | FLOAT (0.0–1.0) | Yes | Only populated where derived deterministically (e.g., schema-validation success + agreement with rule-based signals) — never a raw self-reported LLM confidence, per the [[how-ai-confidence-represented]] decision in TODO.md |
 | `latency_ms` | INTEGER | No | Call duration |
 | `prompt_tokens` / `completion_tokens` | INTEGER | Yes | If exposed by the provider |
+| `grounding_retry_used` | BOOLEAN | No, default `false` | **Post-roadmap addition, Phase 7.** `true` if this task's free-text output failed a grounding check (see below) on the first attempt and was regenerated once with a corrective prompt before being stored — so it's answerable from the row itself, not just logs, whether a retry happened. Only ever set for `incident_summary`, `investigation_hypothesis`, and `attack_classification` (the task types with a groundable free-text field); always `false` for the others |
 | `created_at` | TIMESTAMP | No | Row creation time |
 
 **Relationships:** scoped to exactly one `Incident` or `Alert`; `alert_mitre_mapping` rows with `source='llm'` reference the `AnalysisResult` that produced them.
+
+**Grounding-aware retry (post-roadmap, Phase 7).** Added after Phase 12's evaluation measured a 0% grounding rate against a small local model. `run_triage()` checks, immediately after a `VALID` response for `incident_summary`/`investigation_hypothesis`/`attack_classification`, whether the relevant text field(s) mention at least one real IOC/entity identifier actually present in the incident (reusing `app/evaluation/ai_grounding.py`'s own identifier-matching logic, made public so both the eval harness and the live pipeline share one implementation rather than two). If not, the same task is regenerated **once** with an explicit corrective addendum appended to the prompt ("your last answer didn't reference any of the incident's actual identifiers — try again, citing specific hosts/IPs/usernames from the data above"). Only one `AnalysisResult` row is ever persisted per task (matching the existing one-row-per-`task_type`/`prompt_version` idempotency invariant) — if the retry itself comes back schema-invalid, the *original* (ungrounded but valid) response is kept rather than replacing it with a broken one, matching "retry once, then fall back to showing the ungrounded result" rather than "retry until valid." `evaluate_grounding()` was extended to also check `attack_classification`'s `rationale` field, for consistency — the retry logic and the measurement it's built on now check the same set of fields.
 
 **Indexes:** `incident_id`, `alert_id`, `task_type`, `created_at`
 
@@ -256,6 +259,22 @@ A suggested next step, from either the deterministic rule layer or the LLM — k
 
 ---
 
+## 10. `AnalysisFeedback` (post-roadmap addition, Phase 9)
+
+An analyst's thumbs up/down on one `AnalysisResult` — added post-roadmap (WHATNEXT.md's "AI quality" item) to start building a real dataset of which AI outputs an analyst actually trusted, as a precursor to any future fine-tuning or few-shot-example curation. Introduced alongside `PUT`/`DELETE /analysis-results/{id}/feedback` (see the endpoint table above), not as part of Phase 1's original data model — numbered here to keep this dictionary's entity list complete rather than leaving a gap.
+
+| Field | Type | Nullable | Description |
+|---|---|---|---|
+| `id` | UUID | No | Primary key |
+| `analysis_result_id` | UUID (FK → `AnalysisResult.id`, unique) | No | One feedback row per `AnalysisResult` — casting a new vote overwrites the existing row (`rating` + `updated_at`) rather than accumulating a history. This is a live "is this useful" signal, not an audit trail |
+| `rating` | Enum: `up`, `down` | No | The vote |
+| `created_at` | TIMESTAMP | No | First-vote time |
+| `updated_at` | TIMESTAMP | No | Last-vote-change time |
+
+**Indexes:** `analysis_result_id` (unique)
+
+---
+
 ## Entity-Relationship Overview
 
 ```mermaid
@@ -274,6 +293,7 @@ erDiagram
     Alert ||--o{ AnalysisResult : "scoped analyses"
     Alert ||--o{ Recommendation : "scoped recommendations"
     AnalysisResult ||--o{ Recommendation : "source=llm"
+    AnalysisResult ||--o| AnalysisFeedback : "one vote"
 ```
 
 ---
@@ -1376,7 +1396,9 @@ All under `api_v1_prefix` (`/api/v1`, from Phase 0's `Settings`).
 | `GET /detections` | `Page[DetectionRead]` | |
 | `GET /detections/{id}` | `DetectionDetail` | `DetectionRead` + nested `mitre_techniques` |
 | `GET /analysis-results` | `Page[AnalysisResultRead]` | |
-| `GET /analysis-results/{id}` | `AnalysisResultRead` | |
+| `GET /analysis-results/{id}` | `AnalysisResultRead` | `AnalysisResultRead` carries `grounding_retry_used` (**post-roadmap addition**, see § 8 `AnalysisResult` above) and a nested `feedback` (**post-roadmap addition**, see "Analysis feedback" below) |
+| `PUT /analysis-results/{id}/feedback` | `AnalysisFeedbackRead` | **Post-roadmap addition.** Body `{"rating": "up"\|"down"}`. Idempotent upsert |
+| `DELETE /analysis-results/{id}/feedback` | `204 No Content` | **Post-roadmap addition.** Clears a previously-cast vote; a no-op (still `204`), not a `404`, if there was never one |
 | `GET /recommendations` | `Page[RecommendationRead]` | |
 | `GET /recommendations/{id}` | `RecommendationRead` | |
 | `GET /mitre-techniques` | `Page[MITRETechniqueRead]` | |
@@ -1407,6 +1429,8 @@ Verified against the live docker-compose stack (real Postgres, `uvicorn --reload
 **One retroactive update this phase makes to five earlier phases**: Phase 3/4/5/7/8 each documented, in their own sections above and in their `PHASE-N.md` reports, that the frontend dashboard would show a static "Implemented" until Phase 9 gave them a live-checkable surface. That promise is now kept — `frontend/src/data/phases.ts` upgrades all five from `staticImplemented` to `liveCheck`, each checking that its own now-real endpoint (`/api/v1/detections`, `/api/v1/iocs`, `/api/v1/incidents`, `/api/v1/analysis-results`, `/api/v1/mitre-techniques`) is present in the live `/openapi.json` — the same shallow-but-honest pattern Phase 2 established (confirms the route is genuinely mounted, not that any given resource has data yet). Phase 6 deliberately stays static: the `LLMProvider` abstraction has no domain-object identity of its own for a REST resource to expose — `AnalysisResult` (Phase 7's output, not Phase 6's) is what Phase 9 can check.
 
 See [Documentation/PHASE-9.md](PHASE-9.md) for the full narrative and `TODO.md` Phase 9 for the itemized checklist.
+
+**Post-roadmap addition: analysis feedback.** `PUT`/`DELETE /analysis-results/{id}/feedback` (see § 10 `AnalysisFeedback` above) — this project's first mutating, non-ingestion endpoints. Follows the same router/schema/error conventions as the rest of Phase 9 (`NotFoundError` → 404, FastAPI body validation → 422); `PUT` is an idempotent upsert (200, `AnalysisFeedbackRead`), `DELETE` is a no-op-safe clear (204, whether or not a vote existed). Covered by `backend/tests/integration/test_analysis_results_api.py::TestAnalysisFeedback` (cast, recast/overwrite, clear, clear-when-none, 404s, 422 on an invalid rating).
 
 ---
 
@@ -1474,6 +1498,8 @@ Verified against the live docker-compose stack: the frontend image was rebuilt (
 Same convention as every prior phase's own dashboard entry: Phase 10 shows static "Implemented" on `/status`, not live-checked "Working" — it's the dashboard itself, with no separate REST resource for a live check to point at (the same reasoning as Phase 6).
 
 See [Documentation/PHASE-10.md](PHASE-10.md) for the full narrative and `TODO.md` Phase 10 for the itemized checklist.
+
+**Post-roadmap addition: feedback buttons on the AI panel.** `frontend/src/components/ui/FeedbackButtons.tsx` — a thumbs up/down control rendered in every `.ai-panel` header (`IncidentDetailPage.tsx`), calling the Phase 9 addendum's `PUT`/`DELETE /analysis-results/{id}/feedback`. Optimistic UI (updates immediately, rolls back on a failed request) since a vote is low-stakes; the first mutating frontend action in the dashboard, so `apiFetch` (`client.ts`) gained explicit `204 No Content` handling (returns `undefined` rather than attempting to parse an empty body as JSON) alongside it. Covered by `frontend/src/components/ui/FeedbackButtons.test.tsx` (cast, toggle-off/clear, and failure-rollback) and `client.test.ts`'s new 204 case.
 
 ---
 

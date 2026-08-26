@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { Link, useParams } from "react-router-dom";
 import { AiBadge, Pill, SeverityBadge } from "../components/ui/Badges";
+import { FeedbackButtons } from "../components/ui/FeedbackButtons";
 import { ErrorState, LoadingState } from "../components/ui/QueryState";
 import { useApiQuery } from "../hooks/useApiQuery";
 import { fetchIncident } from "../api/resources";
@@ -176,7 +177,13 @@ export function IncidentDetailPage() {
             <div className="ai-panel" key={result.id}>
               <div className="ai-panel-header">
                 <span className="ai-panel-title">{TASK_TITLES[result.task_type]}</span>
-                <AiBadge />
+                <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                  <AiBadge />
+                  <FeedbackButtons
+                    analysisResultId={result.id}
+                    initialRating={result.feedback?.rating ?? null}
+                  />
+                </div>
               </div>
               <div className="ai-panel-body">{renderAnalysisBody(result)}</div>
               <div className="ai-panel-meta" style={{ marginTop: "0.5rem" }}>
@@ -185,6 +192,7 @@ export function IncidentDetailPage() {
                   ? `confidence ${result.confidence.toFixed(2)}`
                   : "no confidence"}{" "}
                 · {result.latency_ms}ms
+                {result.grounding_retry_used && " · regenerated (grounding retry)"}
               </div>
             </div>
           ))
