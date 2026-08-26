@@ -5,9 +5,22 @@ import pytest
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import Session
 
+from app.core.rate_limit import reset_rate_limiters
 from app.models import Base
 from app.models.enums import SourceType
 from app.models.event import SecurityEvent
+
+
+@pytest.fixture(autouse=True)
+def _reset_rate_limiters():
+    """The rate limiter (app/core/rate_limit.py) is process-global state —
+    without this, requests accumulated across unrelated earlier tests in
+    the same pytest run could trip the strict-tier limit for a later,
+    innocent test. See DEF.md § Phase 14.
+    """
+    reset_rate_limiters()
+    yield
+
 
 # The one canonical "trips exactly the ssh_brute_force rule" timestamp/
 # event-burst fixture, shared by every test that just needs a single real

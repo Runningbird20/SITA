@@ -4,7 +4,7 @@ import uuid
 from collections.abc import AsyncGenerator, Awaitable, Callable
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request, Response
+from fastapi import Depends, FastAPI, Request, Response
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
@@ -12,6 +12,7 @@ from fastapi.responses import JSONResponse, RedirectResponse
 
 from app.api.alerts import router as alerts_router
 from app.api.analysis_results import router as analysis_results_router
+from app.api.deps import require_auth
 from app.api.detections import router as detections_router
 from app.api.events import router as events_router
 from app.api.health import router as health_router
@@ -22,9 +23,10 @@ from app.api.mitre import router as mitre_router
 from app.api.pipeline import router as pipeline_router
 from app.api.recommendations import router as recommendations_router
 from app.core.config import get_settings
-from app.core.exceptions import InvalidQueryParameterError, NotFoundError
+from app.core.exceptions import InvalidQueryParameterError, NotFoundError, UnauthorizedError
 from app.core.logging import configure_logging
 from app.core.metrics import http_request_duration_seconds, http_requests_total
+from app.core.rate_limit import check_rate_limit
 from app.core.request_context import reset_request_id, set_request_id
 
 configure_logging()
@@ -126,9 +128,69 @@ async def request_id_and_metrics(
             },
         )
         response.headers["X-Request-ID"] = request_id
+        _apply_security_headers(response, request.url.path)
         return response
     finally:
         reset_request_id(token)
+
+
+def _apply_security_headers(response: Response, path: str) -> None:
+    """Applied to every response (including error/blocked ones, since this
+    runs in the outermost middleware after call_next returns) — see DEF.md
+    § Phase 14.
+    """
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    response.headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()"
+    # /docs and /redoc load their JS/CSS from a CDN — a strict CSP there
+    # would break FastAPI's own interactive docs. Everything else is a pure
+    # JSON API with nothing to load, so default-src 'none' is safe.
+    if path not in ("/docs", "/redoc"):
+        response.headers["Content-Security-Policy"] = "default-src 'none'"
+
+
+@app.middleware("http")
+async def security_gate(
+    request: Request, call_next: Callable[[Request], Awaitable[Response]]
+) -> Response:
+    """Request body size cap and rate limiting, checked before the request
+    reaches routing. See DEF.md § Phase 14. Runs inside
+    request_id_and_metrics (added after it, so Starlette makes it the
+    inner middleware) — a blocked request still gets a request ID, gets
+    logged, and is counted in http_requests_total by its real status code.
+    """
+    settings = get_settings()
+
+    content_length = request.headers.get("content-length")
+    if content_length is not None and int(content_length) > settings.max_request_body_bytes:
+        return JSONResponse(
+            status_code=413,
+            content={
+                "error": {
+                    "code": "payload_too_large",
+                    "message": f"Request body exceeds {settings.max_request_body_bytes} bytes",
+                    "details": None,
+                }
+            },
+        )
+
+    client_key = request.client.host if request.client is not None else "unknown"
+    allowed, retry_after = check_rate_limit(request.method, request.url.path, client_key)
+    if not allowed:
+        return JSONResponse(
+            status_code=429,
+            content={
+                "error": {
+                    "code": "rate_limited",
+                    "message": "Rate limit exceeded",
+                    "details": None,
+                }
+            },
+            headers={"Retry-After": str(int(retry_after) + 1)},
+        )
+
+    return await call_next(request)
 
 
 @app.exception_handler(Exception)
@@ -144,6 +206,15 @@ async def handle_unexpected_error(_: Request, exc: Exception) -> JSONResponse:
         content={
             "error": {"code": "internal_error", "message": "Internal server error", "details": None}
         },
+    )
+
+
+@app.exception_handler(UnauthorizedError)
+async def handle_unauthorized(_: Request, exc: UnauthorizedError) -> JSONResponse:
+    return JSONResponse(
+        status_code=401,
+        content={"error": {"code": "unauthorized", "message": exc.message, "details": None}},
+        headers={"WWW-Authenticate": "Bearer"},
     )
 
 
@@ -181,17 +252,21 @@ async def handle_request_validation_error(_: Request, exc: RequestValidationErro
     )
 
 
+# health/metrics deliberately excluded from require_auth — see DEF.md §
+# Phase 14 (network-restricted rather than app-token-gated, by convention).
 app.include_router(health_router)
 app.include_router(metrics_router)
-app.include_router(events_router)
-app.include_router(alerts_router)
-app.include_router(incidents_router)
-app.include_router(iocs_router)
-app.include_router(detections_router)
-app.include_router(analysis_results_router)
-app.include_router(recommendations_router)
-app.include_router(mitre_router)
-app.include_router(pipeline_router)
+
+_auth = [Depends(require_auth)]
+app.include_router(events_router, dependencies=_auth)
+app.include_router(alerts_router, dependencies=_auth)
+app.include_router(incidents_router, dependencies=_auth)
+app.include_router(iocs_router, dependencies=_auth)
+app.include_router(detections_router, dependencies=_auth)
+app.include_router(analysis_results_router, dependencies=_auth)
+app.include_router(recommendations_router, dependencies=_auth)
+app.include_router(mitre_router, dependencies=_auth)
+app.include_router(pipeline_router, dependencies=_auth)
 
 
 @app.get("/", include_in_schema=False)

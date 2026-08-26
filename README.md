@@ -187,10 +187,18 @@ through every log line a pipeline run emits; an in-process Prometheus
 metrics registry scraped at `GET /metrics`; a catch-all error handler
 giving every unhandled exception the same structured envelope and a
 traceback in the logs; and `/healthz` extended with LLM reachability —
-see [docs/architecture.md § Observability](docs/architecture.md#observability)).
+see [docs/architecture.md § Observability](docs/architecture.md#observability)),
+and Phase 14 (security hardening — a single opt-in shared bearer token
+gating the API, disabled by default so the quick-start below needs no
+setup; two-tier in-memory rate limiting on ingestion and the
+LLM-triggering endpoint; strict LLM-output schema enforcement
+(`extra="forbid"`) as the real backstop behind a documented, honestly-scoped
+prompt-injection mitigation; standard security headers; a non-root
+production container for the frontend; and blocking dependency scanning
+in CI — see [Documentation/PHASE-14.md](Documentation/PHASE-14.md)).
 See [Documentation/](Documentation/) for the detailed report on each
 completed phase, and [TODO.md](TODO.md) for the full roadmap and what's
-next (Phase 14: Security Hardening).
+next (Phase 15: Deployment).
 
 ## License
 
