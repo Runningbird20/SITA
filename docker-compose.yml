@@ -78,6 +78,13 @@ services:
       # the compose-file level. See DEF.md § Phase 15.
     volumes:
       - ./backend/app:/app/app
+      # Without this, a new Alembic migration added during dev is invisible
+      # inside the running container until the image is rebuilt — `alembic
+      # upgrade head` silently no-ops against the old, baked-in migration
+      # set instead of erroring, which reads as a working backend until a
+      # query hits the missing column/table. Mirrors the ./backend/app
+      # mount above for the same live-reload reason.
+      - ./backend/alembic:/app/alembic
       # Read-only: lets scripts/demo.sh load the synthetic datasets via the
       # existing batch-import CLI without baking data/ into the image.
       - ./data:/data:ro
