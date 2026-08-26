@@ -479,6 +479,30 @@ Original ask: `run_detection()` didn't deduplicate — re-running it over an alr
 
 **Resolution:** implemented the fingerprint approach, not just documented a policy — this was the one item in this file with a real, already-observed cost (it had forced a workaround in `scripts/demo.sh`, Phase 15). `Alert.fingerprint` (SHA-256 of `detection_id` + sorted matched event IDs, `UNIQUE` at the database level) makes a re-run over an overlapping window a genuine no-op: `run_detection()` now reports `duplicates_skipped` instead of silently creating duplicates. Verified against a real Postgres instance, not just SQLite: re-running the full pipeline against an already-populated demo database created 0 new alerts and reported `duplicates_skipped: 17`, exactly matching the 17 real alerts already present. See [DEF.md § Phase 3, "Post-roadmap addition: idempotent detection re-runs"](Documentation/DEF.md#post-roadmap-addition-idempotent-detection-re-runs--resolves-detection-run-idempotency).
 
+### Correlation ingestion-order bug — resolved
+
+Originally raised in WHATNEXT.md's "Fix first" section: ingesting *only* the eval dataset's `multi_stage` scenario files produced 2 incidents; ingesting the full eval dataset (same files, plus everything else) correctly produced 1 — found during Phase 12, worked around (the AI-grounding script used the full-dataset path) rather than root-caused.
+
+**Resolution:** investigation found two real, compounding bugs, not one. (1) `username` IOCs were scored identically to IPs/domains/hashes — a bare shared username (e.g. `"admin"`) is expected to recur across genuinely unrelated hosts/incidents, and concretely did, spuriously merging 4 unrelated alerts into the `multi_stage` incident whenever the full eval dataset was ingested. (2) Removing that bug exposed a second one it had been masking: a single shared high-specificity IOC (e.g. the real attacker IP linking the brute-force and port-scan alerts) only earned half credit (`ioc_saturation=2`), not enough to cross `correlation_threshold` on its own — this also broke an existing, intentional unit test that had only ever passed because its fixture *also* happened to share a username. Fixed by excluding `username` from IOC-based correlation scoring entirely (`app/correlation/pipeline.py::_build_alert_signature`) and lowering `ioc_saturation` from `2` to `1` so one strong shared IOC is decisive on its own. Verified: `multi_stage` now correctly produces one incident whether ingested alone or as part of the full eval dataset, the full test suite passes (including a new regression test for the username case), and the eval harness's correlation accuracy is 2/2 for the right reason this time, not by coincidence. See [DEF.md § Phase 5, "Shared-IOC correlation: username excluded"](Documentation/DEF.md#phase-5-incident-correlation).
+
+### Few-shot examples in triage prompts — resolved
+
+Originally raised in WHATNEXT.md's "AI quality" section: Phase 12's evaluation measured a 0% grounding rate and a confirmed hallucinated `"ransomware"` classification against a small local model; every triage prompt was zero-shot.
+
+**Resolution:** all six triage prompts (`app/triage/prompts.py`) now embed one shared worked example — a fictional but realistically-shaped incident (RFC 5737 addresses, matching this project's own synthetic-data convention) paired with a well-grounded example response. The `attack_classification` example specifically models declining to guess a dramatic category the data doesn't support — the same failure mode the hallucination demonstrated. All six prompt versions bumped (`v1` → `v2`). See [DEF.md § Phase 7](Documentation/DEF.md#phase-7-ai-powered-triage).
+
+### Grounding-aware retry — resolved
+
+Originally raised in WHATNEXT.md's "AI quality" section: `evaluate_grounding()`'s check existed but was only ever measured, never acted on.
+
+**Resolution:** `run_triage()` now checks `incident_summary`/`investigation_hypothesis`/`attack_classification` responses for a real cited identifier immediately after generation; an ungrounded-but-valid response is regenerated once with an explicit corrective prompt before being persisted, falling back to the original response if the retry itself fails validation. A new `AnalysisResult.grounding_retry_used` column makes this checkable from the data itself, not just logs. `evaluate_grounding()` was extended to also check `attack_classification`'s `rationale` — the exact field the real hallucination was in — so the eval harness and the live retry logic now check the same fields. See [DEF.md § 8 `AnalysisResult`, "Grounding-aware retry"](Documentation/DEF.md#8-analysisresult).
+
+### Analysis feedback (thumbs up/down) — resolved
+
+Originally raised in WHATNEXT.md's "AI quality" section: no signal existed for which AI outputs an analyst actually trusted, a natural precursor to any future fine-tuning or few-shot-example curation.
+
+**Resolution:** thumbs up/down on every AI analysis card (`frontend/src/components/ui/FeedbackButtons.tsx`), backed by a new `AnalysisFeedback` table and `PUT`/`DELETE /analysis-results/{id}/feedback` — this project's first mutating, non-ingestion endpoints. One vote per `AnalysisResult` (recasting overwrites, not accumulates); optimistic UI with rollback on a failed request. See [DEF.md § 10 `AnalysisFeedback`](Documentation/DEF.md#10-analysisfeedback-post-roadmap-addition-phase-9).
+
 ## Potential Resume Metrics
 
 Track these as the project matures so eventual resume bullets can cite concrete numbers instead of vague claims.
