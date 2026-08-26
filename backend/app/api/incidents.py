@@ -11,7 +11,8 @@ from app.core.exceptions import NotFoundError
 from app.db.session import get_db
 from app.mitre.rollup import incident_technique_rollup
 from app.models.alert import Alert
-from app.models.enums import IncidentStatus, Severity
+from app.models.analysis_result import AnalysisResult
+from app.models.enums import AnalysisTaskType, IncidentStatus, Severity
 from app.models.incident import Incident
 from app.schemas.incident import IncidentDetail, IncidentRead
 from app.schemas.mitre import IncidentTechniqueEntryOut, TechniqueEvidenceOut
@@ -52,6 +53,24 @@ def _rollup_out(incident: Incident) -> list[IncidentTechniqueEntryOut]:
         )
         for entry in incident_technique_rollup(incident)
     ]
+
+
+def _latest_analysis_results(incident: Incident) -> list[AnalysisResult]:
+    """One result per task_type — the most recent, not every historical
+    attempt. `run_triage(..., force=True)` adds a new row rather than
+    replacing an old one (by design, for auditability — see DEF.md §
+    Phase 7), so without this an incident's AI panel would show a stale
+    (sometimes invalid) result from an earlier run ahead of a later,
+    valid one, in whatever order the DB happens to return them. Bugfix
+    found by actually looking at a real incident with more than one
+    triage run behind it, not assumed.
+    """
+    latest: dict[AnalysisTaskType, AnalysisResult] = {}
+    for result in incident.analysis_results:
+        current = latest.get(result.task_type)
+        if current is None or result.created_at >= current.created_at:
+            latest[result.task_type] = result
+    return sorted(latest.values(), key=lambda r: r.created_at)
 
 
 def _to_incident_read(incident: Incident, alert_count: int) -> IncidentRead:
@@ -130,7 +149,7 @@ def get_incident(incident_id: uuid.UUID, db: Session = Depends(get_db)) -> Incid
         alerts=list(incident.alerts),
         iocs=[to_ioc_read(ioc) for ioc in iocs.values()],
         entities=list(entities.values()),
-        analysis_results=list(incident.analysis_results),
+        analysis_results=_latest_analysis_results(incident),
         recommendations=list(incident.recommendations),
         mitre_techniques=_rollup_out(incident),
     )
