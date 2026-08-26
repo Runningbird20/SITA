@@ -4,11 +4,13 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.api.converters import to_ioc_read
 from app.api.deps import PageParams, apply_sort, pagination_params
 from app.core.config import get_settings
 from app.core.exceptions import NotFoundError
 from app.db.session import get_db
 from app.mitre.rollup import incident_technique_rollup
+from app.models.alert import Alert
 from app.models.enums import IncidentStatus, Severity
 from app.models.incident import Incident
 from app.schemas.incident import IncidentDetail, IncidentRead
@@ -52,6 +54,21 @@ def _rollup_out(incident: Incident) -> list[IncidentTechniqueEntryOut]:
     ]
 
 
+def _to_incident_read(incident: Incident, alert_count: int) -> IncidentRead:
+    return IncidentRead(
+        id=incident.id,
+        title=incident.title,
+        status=incident.status,
+        severity=incident.severity,
+        first_activity_at=incident.first_activity_at,
+        last_activity_at=incident.last_activity_at,
+        correlation_method=incident.correlation_method,
+        created_at=incident.created_at,
+        updated_at=incident.updated_at,
+        alert_count=alert_count,
+    )
+
+
 @router.get("", response_model=Page[IncidentRead])
 def list_incidents(
     status: IncidentStatus | None = Query(None),
@@ -61,7 +78,16 @@ def list_incidents(
     db: Session = Depends(get_db),
 ) -> Page[IncidentRead]:
     """List/filter incidents by status or severity."""
-    stmt = select(Incident)
+    # alert_count via a pre-aggregated subquery, not len(incident.alerts)
+    # per row — avoids N+1 lazy-loads across a page of incidents.
+    counts = (
+        select(Alert.incident_id, func.count(Alert.id).label("alert_count"))
+        .group_by(Alert.incident_id)
+        .subquery()
+    )
+    stmt = select(Incident, func.coalesce(counts.c.alert_count, 0)).outerjoin(
+        counts, counts.c.incident_id == Incident.id
+    )
     if status is not None:
         stmt = stmt.where(Incident.status == status)
     if severity is not None:
@@ -69,22 +95,26 @@ def list_incidents(
 
     total = db.scalar(select(func.count()).select_from(stmt.subquery())) or 0
     stmt = apply_sort(stmt, sort, _SORTABLE, default="-last_activity_at")
-    items = db.scalars(stmt.limit(page.limit).offset(page.offset)).all()
+    rows = db.execute(stmt.limit(page.limit).offset(page.offset)).all()
+    items = [_to_incident_read(incident, count) for incident, count in rows]
     return Page(items=items, total=total, limit=page.limit, offset=page.offset)
 
 
 @router.get("/{incident_id}", response_model=IncidentDetail)
 def get_incident(incident_id: uuid.UUID, db: Session = Depends(get_db)) -> IncidentDetail:
-    """Get one incident with its alerts, deduplicated IOCs (rolled up
-    across those alerts), AI analyses, recommendations, and MITRE
-    technique rollup.
+    """Get one incident with its alerts, deduplicated IOCs and entities
+    (rolled up across those alerts), AI analyses, recommendations, and
+    MITRE technique rollup.
     """
     incident = _get_incident_or_404(db, incident_id)
 
     iocs = {}
+    entities = {}
     for alert in incident.alerts:
         for ioc in alert.iocs:
             iocs[ioc.id] = ioc
+        for link in alert.entity_links:
+            entities[link.entity.id] = link.entity
 
     return IncidentDetail(
         id=incident.id,
@@ -96,8 +126,10 @@ def get_incident(incident_id: uuid.UUID, db: Session = Depends(get_db)) -> Incid
         correlation_method=incident.correlation_method,
         created_at=incident.created_at,
         updated_at=incident.updated_at,
+        alert_count=len(incident.alerts),
         alerts=list(incident.alerts),
-        iocs=list(iocs.values()),
+        iocs=[to_ioc_read(ioc) for ioc in iocs.values()],
+        entities=list(entities.values()),
         analysis_results=list(incident.analysis_results),
         recommendations=list(incident.recommendations),
         mitre_techniques=_rollup_out(incident),

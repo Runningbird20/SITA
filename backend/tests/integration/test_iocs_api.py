@@ -32,13 +32,26 @@ class TestListAndGetIocs:
         response = test_client.get("/api/v1/iocs", params={"min_confidence": 0.5})
         assert response.json()["total"] == 1
 
+    def test_search_by_value_substring(self, client):
+        test_client, session_factory = client
+        seed_full_incident(session_factory)
+
+        response = test_client.get("/api/v1/iocs", params={"search": "198.51"})
+        assert response.json()["total"] == 1
+
+        response = test_client.get("/api/v1/iocs", params={"search": "no-match-here"})
+        assert response.json()["total"] == 0
+
     def test_get_by_id(self, client):
         test_client, session_factory = client
         ids = seed_full_incident(session_factory)
 
         response = test_client.get(f"/api/v1/iocs/{ids['ioc_id']}")
         assert response.status_code == 200
-        assert response.json()["id"] == ids["ioc_id"]
+        body = response.json()
+        assert body["id"] == ids["ioc_id"]
+        assert body["alert_ids"] == [ids["alert_id"]]
+        assert body["event_ids"] == []
 
     def test_get_missing_returns_404(self, client):
         test_client, _ = client

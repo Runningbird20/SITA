@@ -148,7 +148,14 @@ export const PHASES: Phase[] = [
     id: 10,
     title: "Frontend",
     goal: "A dense, usable SOC-style dashboard — the primary visual artifact for demos and interviews.",
-    evaluate: notImplemented,
+    // Deliberately static, like Phase 6: this dashboard is itself the
+    // artifact, so it has no separate REST resource for a live check to
+    // point at. Genuinely complete — overview, alerts, incidents, incident
+    // detail (with the AI panel), IOC explorer, detections, and MITRE
+    // library views, all wired to the real Phase 9 API. The old build-
+    // status page moved to /status rather than being deleted. See
+    // Documentation/PHASE-10.md.
+    evaluate: staticImplemented,
   },
   {
     id: 11,

@@ -307,21 +307,21 @@ SITA/
 
 **Tasks**
 
-- [ ] Set up typed API client (generated from OpenAPI schema or hand-written typed fetch layer)
-- [ ] Build overview dashboard (counts by severity, recent incidents, alert volume over time)
-- [ ] Build alert list view (filterable/sortable table, severity indicators)
-- [ ] Build incident list view (status, severity, alert count, last activity)
-- [ ] Build incident detail page (constituent alerts, IOCs, entities, MITRE techniques, AI analysis panel, recommendations)
-- [ ] Build IOC explorer (searchable/filterable, links back to source alerts/events)
-- [ ] Build detection page (list of rule definitions, their descriptions, and recent firings)
-- [ ] Build MITRE ATT&CK visualization (matrix-style view highlighting techniques observed in the environment)
-- [ ] `[HIGH VALUE]` Build the AI analysis panel with unmistakable visual separation from deterministic content (distinct styling, "AI-generated" labeling, confidence/model metadata shown)
-- [ ] Build incident timeline (chronological view of events/alerts within an incident)
-- [ ] Implement loading/empty/error states across all views
-- [ ] Apply consistent design system/theming (component library or hand-rolled, dark-mode-friendly SOC aesthetic) `[STRETCH]`
-- [ ] Add basic frontend tests for key components `[STRETCH]`
+- [x] Set up typed API client (generated from OpenAPI schema or hand-written typed fetch layer) — hand-written: `frontend/src/api/types.ts` (mirrored schemas) + `frontend/src/api/resources.ts` (one function per endpoint); see [DEF.md § Phase 10](Documentation/DEF.md#phase-10-frontend) for why hand-written over generated
+- [x] Build overview dashboard (counts by severity, recent incidents, alert volume over time) — `frontend/src/pages/OverviewPage.tsx`
+- [x] Build alert list view (filterable/sortable table, severity indicators) — `frontend/src/pages/AlertsPage.tsx`
+- [x] Build incident list view (status, severity, alert count, last activity) — `frontend/src/pages/IncidentsPage.tsx`; `alert_count` added to `IncidentRead` this phase (Phase 9 amendment, see DEF.md)
+- [x] Build incident detail page (constituent alerts, IOCs, entities, MITRE techniques, AI analysis panel, recommendations) — `frontend/src/pages/IncidentDetailPage.tsx`; `entities` added to `IncidentDetail` this phase
+- [x] Build IOC explorer (searchable/filterable, links back to source alerts/events) — `frontend/src/pages/IocsPage.tsx`; `search` param + `alert_ids`/`event_ids` added to the IOC endpoints this phase
+- [x] Build detection page (list of rule definitions, their descriptions, and recent firings) — `frontend/src/pages/DetectionsPage.tsx` (expand a rule to see its recent alerts)
+- [x] Build MITRE ATT&CK visualization (matrix-style view highlighting techniques observed in the environment) — `frontend/src/pages/MitrePage.tsx`, grouped by tactic; renders the local technique library, not a live cross-incident "observed" aggregate (no such endpoint exists — see DEF.md § Phase 10 for why that wasn't built speculatively)
+- [x] `[HIGH VALUE]` Build the AI analysis panel with unmistakable visual separation from deterministic content (distinct styling, "AI-generated" labeling, confidence/model metadata shown) — `<AiBadge />` + `.ai-panel` styling in `frontend/src/styles/dashboard.css`, used identically in the incident AI panel, LLM-sourced recommendations, and LLM-sourced MITRE evidence
+- [x] Build incident timeline (chronological view of events/alerts within an incident) — timeline section on `IncidentDetailPage.tsx`, alerts sorted by `first_event_at`
+- [x] Implement loading/empty/error states across all views — `frontend/src/components/ui/QueryState.tsx` (`LoadingState`/`EmptyState`/`ErrorState`), used by every page via the shared `useApiQuery` hook
+- [x] Apply consistent design system/theming (component library or hand-rolled, dark-mode-friendly SOC aesthetic) `[STRETCH]` — hand-rolled, extends the existing dark/monospace palette from the status page (`index.css`'s new severity/AI-attribution tokens, `styles/dashboard.css`)
+- [x] Add basic frontend tests for key components `[STRETCH]` — Vitest + Testing Library; `frontend/src/lib/aggregate.test.ts`, `frontend/src/components/ui/{Badges,Pagination}.test.tsx` (11 cases)
 
-**Definition of Done:** A reviewer can open the dashboard, browse incidents end-to-end from overview → incident detail → AI analysis → MITRE mapping, with no dead ends or unhandled empty states.
+**Definition of Done:** A reviewer can open the dashboard, browse incidents end-to-end from overview → incident detail → AI analysis → MITRE mapping, with no dead ends or unhandled empty states. Confirmed against the live docker-compose stack with real pipeline-generated data — see [DEF.md § Phase 10 Status](Documentation/DEF.md#phase-10-status-implemented) and [PHASE-10.md](Documentation/PHASE-10.md). The old build-status page moved to `/status` rather than being replaced.
 
 ---
 
