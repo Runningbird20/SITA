@@ -8,17 +8,22 @@ avoiding overlap is the caller's responsibility. Tracked as
 [[detection-run-idempotency]] in TODO.md.
 """
 
+import logging
+import time
 from datetime import datetime
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.metrics import alerts_created_total, detection_rule_duration_seconds
 from app.detection.registry import RULES
 from app.detection.seed import ensure_detections_seeded
 from app.models.alert import Alert
 from app.models.enums import SourceType
 from app.models.event import SecurityEvent
 from app.schemas.detection_run import DetectionRunReport
+
+logger = logging.getLogger(__name__)
 
 
 def _load_events(
@@ -45,7 +50,13 @@ def run_detection(db: Session, since: datetime | None = None) -> DetectionRunRep
         event_lookup = {e.id: e for e in events}
         config = detection.config or rule.default_config
 
-        for finding in rule.evaluate(db, events, config):
+        start = time.monotonic()
+        findings = list(rule.evaluate(db, events, config))
+        detection_rule_duration_seconds.labels(rule_key=rule.rule_key).observe(
+            time.monotonic() - start
+        )
+
+        for finding in findings:
             alert = Alert(
                 detection_id=detection.id,
                 severity=finding.severity,
@@ -63,7 +74,20 @@ def run_detection(db: Session, since: datetime | None = None) -> DetectionRunRep
             alerts_created += 1
             alerts_by_rule[rule.rule_key] += 1
 
+        if findings:
+            alerts_created_total.labels(rule_key=rule.rule_key).inc(len(findings))
+
     db.flush()
+
+    logger.info(
+        "detection run completed",
+        extra={
+            "since": since.isoformat() if since else None,
+            "rules_run": len(RULES),
+            "alerts_created": alerts_created,
+            "alerts_by_rule": alerts_by_rule,
+        },
+    )
 
     return DetectionRunReport(
         since=since,

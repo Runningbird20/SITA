@@ -377,17 +377,17 @@ SITA/
 
 **Tasks**
 
-- [ ] Ensure structured (JSON) logging is consistent across ingestion, detection, correlation, LLM, and API layers (builds on Phase 0 logging setup)
-- [ ] Implement request IDs (generated per API request, propagated through logs and, where relevant, through async pipeline processing triggered by that request)
-- [ ] Emit processing metrics (events ingested, alerts generated, incidents created/updated) — counters at minimum
-- [ ] Emit detection metrics (rule firing counts, rule execution latency)
-- [ ] Emit LLM metrics (calls made, success/failure rate, latency, provider/model in use)
-- [ ] Add basic error tracking (structured error logs with enough context to debug without reproducing)
-- [ ] Add health check endpoints (`/healthz` covering DB connectivity and, optionally, LLM provider reachability)
-- [ ] `[STRETCH]` Expose metrics in Prometheus format and provide a simple Grafana dashboard/docker-compose profile
-- [ ] Document the observability approach in `docs/architecture.md`
+- [x] Ensure structured (JSON) logging is consistent across ingestion, detection, correlation, LLM, and API layers (builds on Phase 0 logging setup) — `ingestion/service.py`, `detection/pipeline.py`, and `correlation/pipeline.py` had no logging at all before this phase; each now logs a structured summary per run. See [DEF.md § Phase 13](Documentation/DEF.md#phase-13-observability)
+- [x] Implement request IDs (generated per API request, propagated through logs and, where relevant, through async pipeline processing triggered by that request) — `app/core/request_context.py` (ContextVar + logging filter) and a middleware in `app/main.py`; verified live, including a real ordering bug caught by reading the server's own logs and fixed (see DEF.md § Phase 13 Status)
+- [x] Emit processing metrics (events ingested, alerts generated, incidents created/updated) — counters at minimum — `sita_events_ingested_total`, `sita_ingestion_errors_total`, `sita_alerts_created_total`, `sita_incidents_created_total`, `sita_incidents_updated_total` in `app/core/metrics.py`
+- [x] Emit detection metrics (rule firing counts, rule execution latency) — `sita_alerts_created_total{rule_key=...}`, `sita_detection_rule_duration_seconds{rule_key=...}`
+- [x] Emit LLM metrics (calls made, success/failure rate, latency, provider/model in use) — `sita_llm_calls_total{provider,model,task_type,status}`, `sita_llm_call_duration_seconds{provider,model,task_type}`, one point per network attempt (not per logical task)
+- [x] Add basic error tracking (structured error logs with enough context to debug without reproducing) — a catch-all `Exception` handler in `app/main.py` logs a full traceback with request-ID context and returns the same structured error envelope every other API error uses; verified against a real unhandled exception
+- [x] Add health check endpoints (`/healthz` covering DB connectivity and, optionally, LLM provider reachability) — `llm` field added: `"not_configured"` for Mock (no network call), `"ok"`/`"unavailable"` for Ollama via a short-timeout ping
+- [x] `[STRETCH]` Expose metrics in Prometheus format and provide a simple Grafana dashboard/docker-compose profile — partially done, stated plainly: `GET /metrics` is real, standard Prometheus text exposition format; a bundled Grafana dashboard/compose profile was not built (deliberately out of scope — see DEF.md § Phase 13)
+- [x] Document the observability approach in `docs/architecture.md` — see [docs/architecture.md § Observability](docs/architecture.md#observability)
 
-**Definition of Done:** Every request is traceable end-to-end via request ID in logs; core throughput/latency/error metrics are queryable (at minimum via logs, ideally via a metrics endpoint); health checks accurately reflect system state.
+**Definition of Done:** Every request is traceable end-to-end via request ID in logs; core throughput/latency/error metrics are queryable (at minimum via logs, ideally via a metrics endpoint); health checks accurately reflect system state. Confirmed — see [DEF.md § Phase 13 Status](Documentation/DEF.md#phase-13-status-implemented) and [PHASE-13.md](Documentation/PHASE-13.md).
 
 ---
 

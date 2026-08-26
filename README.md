@@ -180,10 +180,17 @@ against it; automated AI-output grounding checks against a live local
 model, honestly reporting a 0% grounding rate and one hallucinated
 classification; and real pipeline throughput / API latency benchmarks —
 see [docs/evaluation_methodology.md](docs/evaluation_methodology.md) and
-[docs/benchmarks.md](docs/benchmarks.md)).
+[docs/benchmarks.md](docs/benchmarks.md)), and Phase 13 (observability —
+structured JSON logging closed across every pipeline layer that
+previously had none; end-to-end request-ID propagation from HTTP request
+through every log line a pipeline run emits; an in-process Prometheus
+metrics registry scraped at `GET /metrics`; a catch-all error handler
+giving every unhandled exception the same structured envelope and a
+traceback in the logs; and `/healthz` extended with LLM reachability —
+see [docs/architecture.md § Observability](docs/architecture.md#observability)).
 See [Documentation/](Documentation/) for the detailed report on each
 completed phase, and [TODO.md](TODO.md) for the full roadmap and what's
-next (Phase 13: Observability).
+next (Phase 14: Security Hardening).
 
 ## License
 

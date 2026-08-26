@@ -185,7 +185,7 @@ export const PHASES: Phase[] = [
     id: 13,
     title: "Observability",
     goal: "Production-style visibility into what the system is doing.",
-    evaluate: notImplemented,
+    evaluate: liveCheck((status) => status.metricsAvailable),
   },
   {
     id: 14,

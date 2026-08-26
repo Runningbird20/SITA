@@ -3,16 +3,20 @@ REST streaming endpoint (DEF.md § Phase 2 §4) — same validation, same
 report shape, regardless of how the records arrived.
 """
 
+import logging
 import uuid
 from datetime import UTC, datetime
 
 from sqlalchemy.orm import Session
 
+from app.core.metrics import events_ingested_total, ingestion_errors_total
 from app.ingestion.base import IngestionValidationError
 from app.ingestion.registry import get_adapter
 from app.models.enums import SourceType
 from app.models.event import SecurityEvent
 from app.schemas.ingestion import IngestionReport, IngestionReportError
+
+logger = logging.getLogger(__name__)
 
 
 def ingest_records(
@@ -54,6 +58,21 @@ def ingest_records(
         accepted += 1
 
     db.flush()
+
+    events_ingested_total.labels(source_type=source_type.value).inc(accepted)
+    if errors:
+        ingestion_errors_total.labels(source_type=source_type.value).inc(len(errors))
+
+    logger.info(
+        "ingestion run completed",
+        extra={
+            "source_type": source_type.value,
+            "batch_id": str(batch_id) if batch_id else None,
+            "total": len(raw_records),
+            "accepted": accepted,
+            "rejected": len(errors),
+        },
+    )
 
     return IngestionReport(
         batch_id=batch_id,

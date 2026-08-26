@@ -1,5 +1,6 @@
 from sqlalchemy import select
 
+from app.core.metrics import incidents_created_total
 from app.correlation.pipeline import run_correlation
 from app.detection.pipeline import run_detection
 from app.ioc.pipeline import run_ioc_extraction
@@ -14,11 +15,14 @@ class TestRunCorrelation:
         run_detection(db_session)
         db_session.commit()
 
+        incidents_before = incidents_created_total._value.get()
+
         report = run_correlation(db_session)
         db_session.commit()
 
         assert report.incidents_created == 1
         assert report.incidents_joined == 0
+        assert incidents_created_total._value.get() == incidents_before + 1
         incident = db_session.scalars(select(Incident)).one()
         assert incident.status == IncidentStatus.OPEN
         assert "SSH Brute Force" in incident.title

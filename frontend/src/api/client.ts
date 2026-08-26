@@ -6,6 +6,7 @@ export const API_BASE_URL: string =
 export interface HealthzResponse {
   status: "ok" | "degraded";
   database: "ok" | "unavailable";
+  llm: "ok" | "unavailable" | "not_configured";
 }
 
 /** Thrown by apiFetch for any non-2xx response. Carries the structured
@@ -92,4 +93,25 @@ interface OpenApiSchema {
 export async function fetchOpenApiPaths(signal: AbortSignal): Promise<Set<string>> {
   const schema = await fetchJson<OpenApiSchema>("/openapi.json", signal);
   return new Set(Object.keys(schema.paths ?? {}));
+}
+
+/** Phase 13's /metrics is unversioned Prometheus text, not JSON, and isn't
+ * listed in the OpenAPI schema (it's registered with include_in_schema
+ * =False, matching Prometheus's own scrape convention) — so it needs its
+ * own check rather than reusing fetchJson/fetchOpenApiPaths. Never rejects:
+ * a /metrics hiccup should mark only Phase 13 broken, not take down the
+ * whole status page via a failed Promise.all.
+ */
+export async function fetchMetricsAvailable(signal: AbortSignal): Promise<boolean> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/metrics`, { signal });
+    if (!response.ok) return false;
+    const text = await response.text();
+    // A metric declared with no labels (unlike the labeled counters) is
+    // always emitted from process start, even before any pipeline activity
+    // — a reliable "is this really Prometheus output" signal.
+    return text.includes("sita_incidents_created_total");
+  } catch {
+    return false;
+  }
 }
