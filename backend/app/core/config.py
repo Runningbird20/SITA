@@ -21,14 +21,25 @@ class Settings(BaseSettings):
 
     # API
     api_v1_prefix: str = "/api/v1"
-    # Empty = auth disabled (the default — every existing quick-start
-    # command and test client calls the API with no Authorization header).
-    # Set to require `Authorization: Bearer <token>` on every /api/v1/*
-    # route. See DEF.md § Phase 14.
-    api_auth_token: str = ""
+    # Auth is opt-in by DB state, not a config flag: zero `User` rows =
+    # disabled (every existing quick-start command and test client calls
+    # the API with no Authorization header), non-zero = every /api/v1/*
+    # route requires a valid per-user `Authorization: Bearer <token>`
+    # issued by `POST /auth/login`. See DEF.md § Phase 14, "Multi-user /
+    # RBAC (post-roadmap)" — replaces the single-shared-token model
+    # (`api_auth_token`) that predated named users. How long a login
+    # session stays valid before requiring a fresh `POST /auth/login`.
+    auth_token_expiry_days: int = 7
     rate_limit_general_per_minute: int = 300
     rate_limit_strict_per_minute: int = 30
     max_request_body_bytes: int = 10_000_000
+    # Empty (default) = rate limiting stays in-process/single-worker
+    # (documented limitation, Phase 13/14). Set to a real Redis URL (the
+    # docker-compose services do) to make rate limiting correct across
+    # multiple uvicorn workers — see DEF.md § Phase 14, "Multi-process
+    # rate limiting (post-roadmap)". Not required for the zero-friction
+    # native/SQLite dev path, which never runs more than one worker anyway.
+    redis_url: str = ""
     # Both hostnames for the same dev server: browsers treat localhost and
     # 127.0.0.1 as distinct origins for CORS purposes, and which one a
     # given browser/OS resolves "localhost" to isn't guaranteed (see the

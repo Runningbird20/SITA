@@ -1,0 +1,186 @@
+# Production deployment — self-contained (not layered on docker-compose.yml,
+# to avoid depending on Compose's list-merge/override semantics for
+# something this consequential). Run with:
+#
+#   docker compose -f docker-compose.prod.yml up -d --build
+#
+# What's different from the dev compose file:
+#   - frontend builds the Dockerfile's hardened `production` nginx stage,
+#     not the hot-reload `dev` target — no bind-mounted source, no Vite
+#     dev server, runs as nginx's own unprivileged user (see DEF.md § Phase
+#     14 and frontend/Dockerfile).
+#   - backend drops --reload and the dev-only bind mounts (backend/app,
+#     backend/alembic) — it runs the image exactly as built, not a live
+#     view of the host source tree.
+#   - a new `proxy` service (Caddy) is the only service with a published
+#     host port, terminating real TLS in front of everything else — see
+#     the Caddyfile for the local-self-signed-by-default / real-domain
+#     swap. postgres/backend/frontend/ollama are reachable only from other
+#     containers on the compose network, not from the host or internet.
+#   - SITA_DOMAIN (env var, default "localhost") controls what hostname
+#     Caddy serves and what cert it gets you — see Caddyfile.
+#   - backend runs 4 uvicorn workers, not 1 — safe now that
+#     app/core/rate_limit.py and app/core/metrics.py are both
+#     multi-process-aware (a new `redis` service backs the rate limiter;
+#     PROMETHEUS_MULTIPROC_DIR backs metrics, merged at scrape time via
+#     prometheus_client.multiprocess) — see DEF.md § Phase 14,
+#     "Multi-process metrics/rate limiting (post-roadmap)".
+#
+# Still not doing: a managed/external Postgres or Redis, secrets
+# management beyond `.env`. See WHATNEXT.md and TODO.md's Architecture
+# Decisions Tracker for what's still open.
+#
+# `name:` matters, not just cosmetic: without it, Compose derives the
+# project name from the directory — the same "sita" the dev
+# docker-compose.yml uses — so this file's containers/network would
+# collide with, and silently replace, an already-running dev stack's
+# containers of the same names. Confirmed the hard way while building
+# this file. (Postgres/Ollama's named *volumes* would survive either way
+# — `docker compose down` alone never removes them — but there's no
+# reason to risk the collision at all.)
+name: sita-prod
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-sita}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-sita}
+      POSTGRES_DB: ${POSTGRES_DB:-sita}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-sita}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  ollama:
+    image: ollama/ollama:latest
+    restart: unless-stopped
+    volumes:
+      - ollama_data:/root/.ollama
+    # See docker-compose.yml's own comment — same model-pull step applies
+    # here via `docker compose -f docker-compose.prod.yml exec ollama ...`.
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    # No persistence volume: rate-limit counters are short-lived (60s
+    # windows) and losing them on a restart just means a brief reset to
+    # zero, not a real data-loss concern — not worth the extra volume.
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build:
+      context: ./backend
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-sita}:${POSTGRES_PASSWORD:-sita}@postgres:5432/${POSTGRES_DB:-sita}
+      OLLAMA_BASE_URL: http://ollama:11434
+      LM_STUDIO_BASE_URL: http://host.docker.internal:1234/v1
+      REDIS_URL: redis://redis:6379/0
+      PROMETHEUS_MULTIPROC_DIR: /tmp/prometheus_multiproc
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      # Read-only: lets scripts/demo.sh (if you choose to run it here)
+      # load the synthetic datasets without baking data/ into the image.
+      - ./data:/data:ro
+    # No --reload (dev-only). --workers 4: safe now that rate limiting
+    # (Redis) and metrics (PROMETHEUS_MULTIPROC_DIR) are both
+    # multi-process-aware — see the file-level comment above. The
+    # `rm -rf ... && mkdir` before uvicorn starts is prometheus_client's
+    # own documented requirement: stale .db files left behind by a
+    # previous crashed/killed run would otherwise double-count into this
+    # run's merged totals. Must happen once, before uvicorn forks its
+    # workers — not from within a worker's own startup, which would race.
+    command:
+      [
+        "sh",
+        "-c",
+        "rm -rf /tmp/prometheus_multiproc && mkdir -p /tmp/prometheus_multiproc && exec uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4",
+      ]
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python3",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://localhost:8000/healthz', timeout=3)",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+
+  frontend:
+    build:
+      context: ./frontend
+      target: production
+      args:
+        # Empty = same-origin, relative fetches through the proxy below —
+        # see frontend/Dockerfile and Caddyfile.
+        VITE_API_BASE_URL: ""
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      # 127.0.0.1, not localhost: this image's /etc/hosts resolves
+      # "localhost" to ::1 first, and nginx.conf only listens on IPv4
+      # 0.0.0.0:8080 — the same IPv6-first gotcha docker-compose.yml's
+      # top comment already documents for the host/browser side, just
+      # reproduced inside a container healthcheck instead.
+      test:
+        [
+          "CMD",
+          "wget",
+          "--quiet",
+          "--tries=1",
+          "--spider",
+          "http://127.0.0.1:8080",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 5s
+
+  proxy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      SITA_DOMAIN: ${SITA_DOMAIN:-localhost}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      frontend:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+  ollama_data:
+  caddy_data:
+  caddy_config:

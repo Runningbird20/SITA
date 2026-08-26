@@ -3,6 +3,10 @@ from datetime import datetime
 from pydantic import BaseModel
 
 
+class TriageReanalyzeRequest(BaseModel):
+    since: datetime | None = None
+
+
 class TriageRunReport(BaseModel):
     since: datetime | None
     incidents_processed: int

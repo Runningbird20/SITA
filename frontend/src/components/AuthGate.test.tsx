@@ -4,12 +4,19 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getAuthToken } from "../api/client";
 import { AuthGate } from "./AuthGate";
 
-function stubFetchOnce(status: number, body: unknown = {}) {
+function stubFetchOnce(status: number, body: unknown = null) {
   vi.stubGlobal(
     "fetch",
     vi.fn(async () => new Response(JSON.stringify(body), { status })),
   );
 }
+
+const ADMIN_USER = {
+  id: "user-1",
+  username: "admin1",
+  role: "admin",
+  created_at: "2026-01-01T00:00:00Z",
+};
 
 describe("AuthGate", () => {
   beforeEach(() => {
@@ -20,8 +27,8 @@ describe("AuthGate", () => {
     vi.unstubAllGlobals();
   });
 
-  it("renders children immediately once the probe succeeds (no auth configured)", async () => {
-    stubFetchOnce(200, { items: [] });
+  it("renders children immediately when /auth/me returns null (auth disabled)", async () => {
+    stubFetchOnce(200, null);
 
     render(
       <AuthGate>
@@ -32,7 +39,19 @@ describe("AuthGate", () => {
     await waitFor(() => expect(screen.getByText("dashboard content")).toBeInTheDocument());
   });
 
-  it("shows a token form when the probe returns 401", async () => {
+  it("renders children immediately when /auth/me returns an already-logged-in user", async () => {
+    stubFetchOnce(200, ADMIN_USER);
+
+    render(
+      <AuthGate>
+        <div>dashboard content</div>
+      </AuthGate>,
+    );
+
+    await waitFor(() => expect(screen.getByText("dashboard content")).toBeInTheDocument());
+  });
+
+  it("shows a login form when /auth/me returns 401", async () => {
     stubFetchOnce(401, { error: { code: "unauthorized", message: "nope", details: null } });
 
     render(
@@ -41,11 +60,12 @@ describe("AuthGate", () => {
       </AuthGate>,
     );
 
-    await waitFor(() => expect(screen.getByPlaceholderText("API token")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByPlaceholderText("Username")).toBeInTheDocument());
+    expect(screen.getByPlaceholderText("Password")).toBeInTheDocument();
     expect(screen.queryByText("dashboard content")).not.toBeInTheDocument();
   });
 
-  it("submitting the correct token stores it and reveals the dashboard", async () => {
+  it("submitting correct credentials stores the token and reveals the dashboard", async () => {
     stubFetchOnce(401, { error: { code: "unauthorized", message: "nope", details: null } });
     const user = userEvent.setup();
 
@@ -55,48 +75,67 @@ describe("AuthGate", () => {
       </AuthGate>,
     );
 
-    await waitFor(() => expect(screen.getByPlaceholderText("API token")).toBeInTheDocument());
-
-    // Next fetch (triggered by submit) succeeds.
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => new Response(JSON.stringify({ items: [] }), { status: 200 })),
-    );
-
-    await user.type(screen.getByPlaceholderText("API token"), "correct-token");
-    await user.click(screen.getByRole("button", { name: "Continue" }));
-
-    await waitFor(() => expect(screen.getByText("dashboard content")).toBeInTheDocument());
-    expect(getAuthToken()).toBe("correct-token");
-  });
-
-  it("shows an error and stays on the form when the submitted token is rejected", async () => {
-    stubFetchOnce(401, { error: { code: "unauthorized", message: "nope", details: null } });
-    const user = userEvent.setup();
-
-    render(
-      <AuthGate>
-        <div>dashboard content</div>
-      </AuthGate>,
-    );
-
-    await waitFor(() => expect(screen.getByPlaceholderText("API token")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByPlaceholderText("Username")).toBeInTheDocument());
 
     vi.stubGlobal(
       "fetch",
       vi.fn(
         async () =>
           new Response(
-            JSON.stringify({ error: { code: "unauthorized", message: "nope", details: null } }),
+            JSON.stringify({
+              token: "issued-token",
+              user: ADMIN_USER,
+              expires_at: "2026-02-01T00:00:00Z",
+            }),
+            { status: 200 },
+          ),
+      ),
+    );
+
+    await user.type(screen.getByPlaceholderText("Username"), "admin1");
+    await user.type(screen.getByPlaceholderText("Password"), "correct-password");
+    await user.click(screen.getByRole("button", { name: "Sign in" }));
+
+    await waitFor(() => expect(screen.getByText("dashboard content")).toBeInTheDocument());
+    expect(getAuthToken()).toBe("issued-token");
+  });
+
+  it("shows an error and stays on the form when login is rejected", async () => {
+    stubFetchOnce(401, { error: { code: "unauthorized", message: "nope", details: null } });
+    const user = userEvent.setup();
+
+    render(
+      <AuthGate>
+        <div>dashboard content</div>
+      </AuthGate>,
+    );
+
+    await waitFor(() => expect(screen.getByPlaceholderText("Username")).toBeInTheDocument());
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              error: {
+                code: "unauthorized",
+                message: "Invalid username or password",
+                details: null,
+              },
+            }),
             { status: 401 },
           ),
       ),
     );
 
-    await user.type(screen.getByPlaceholderText("API token"), "wrong-token");
-    await user.click(screen.getByRole("button", { name: "Continue" }));
+    await user.type(screen.getByPlaceholderText("Username"), "admin1");
+    await user.type(screen.getByPlaceholderText("Password"), "wrong-password");
+    await user.click(screen.getByRole("button", { name: "Sign in" }));
 
-    await waitFor(() => expect(screen.getByText(/rejected/i)).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByText(/invalid username or password/i)).toBeInTheDocument(),
+    );
     expect(screen.queryByText("dashboard content")).not.toBeInTheDocument();
   });
 });

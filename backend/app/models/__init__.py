@@ -16,6 +16,8 @@ from app.models.associations import (
     detection_mitre_mapping,
     event_ioc,
 )
+from app.models.audit_log import AuditLogEntry
+from app.models.auth_token import AuthToken
 from app.models.detection import Detection
 from app.models.entity import Entity
 from app.models.event import SecurityEvent
@@ -23,6 +25,7 @@ from app.models.incident import Incident
 from app.models.ioc import IOC
 from app.models.mitre import MITRETechnique
 from app.models.recommendation import Recommendation
+from app.models.user import User
 
 __all__ = [
     "Base",
@@ -31,6 +34,8 @@ __all__ = [
     "AlertMitreMapping",
     "AnalysisFeedback",
     "AnalysisResult",
+    "AuditLogEntry",
+    "AuthToken",
     "Detection",
     "Entity",
     "EventEntity",
@@ -39,6 +44,7 @@ __all__ = [
     "MITRETechnique",
     "Recommendation",
     "SecurityEvent",
+    "User",
     "alert_event",
     "alert_ioc",
     "detection_mitre_mapping",

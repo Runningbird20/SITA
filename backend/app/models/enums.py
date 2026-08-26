@@ -122,3 +122,8 @@ class RecommendationStatus(StrEnum):
 class FeedbackRating(StrEnum):
     UP = "up"
     DOWN = "down"
+
+
+class UserRole(StrEnum):
+    ANALYST = "analyst"
+    ADMIN = "admin"

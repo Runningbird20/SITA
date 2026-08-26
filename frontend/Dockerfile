@@ -13,6 +13,13 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
 COPY . .
+# Vite inlines VITE_* env vars into the built JS at build time, not
+# runtime — empty by default so a same-origin reverse proxy (see
+# docker-compose.prod.yml / Caddyfile) is the default assumption; pass
+# --build-arg VITE_API_BASE_URL=https://api.example.com only if the API
+# is actually served from a different origin than the frontend.
+ARG VITE_API_BASE_URL=""
+ENV VITE_API_BASE_URL=$VITE_API_BASE_URL
 RUN npm run build
 
 # --- production target: static bundle served by nginx ---

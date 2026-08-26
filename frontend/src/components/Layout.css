@@ -91,6 +91,29 @@
   margin: 0;
 }
 
+.app-nav-user {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-size: 0.8rem;
+  color: var(--color-text);
+}
+
+.app-nav-user-role {
+  color: var(--color-text-dim);
+}
+
+.app-nav-footer button.app-nav-logout {
+  background: transparent;
+  border: none;
+  color: var(--color-text-dim);
+  font-size: 0.75rem;
+  text-decoration: underline;
+  padding: 0;
+  cursor: pointer;
+}
+
 .app-nav-status-link {
   font-size: 0.75rem;
   color: var(--color-text-dim);

@@ -60,6 +60,43 @@ class TestMetricsEndpoint:
         body = response.text
         assert 'path_template="/healthz"' in body
 
+    def test_multiprocess_mode_merges_real_worker_files(self, client, monkeypatch, tmp_path):
+        """PROMETHEUS_MULTIPROC_DIR (docker-compose.prod.yml's multi-worker
+        setup — see DEF.md § Phase 14, "Multi-process metrics
+        (post-roadmap)") switches /metrics to
+        multiprocess.MultiProcessCollector instead of reading this
+        process's own registry directly. A genuine "another worker
+        process" can't be simulated in-process: prometheus_client decides
+        whether a Counter writes to memory or to a multiprocess file on
+        disk at import time, and this test process already imported it
+        (in-memory mode) via app.core.metrics — so a real subprocess,
+        started with the env var set *before* it imports prometheus_client,
+        is what actually produces a genuine per-worker .db file to merge.
+        """
+        import subprocess
+        import sys
+
+        subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                "import os\n"
+                f"os.environ['PROMETHEUS_MULTIPROC_DIR'] = {str(tmp_path)!r}\n"
+                "from prometheus_client import Counter\n"
+                "Counter('sita_test_multiproc_total', 'test-only metric').inc(3)\n",
+            ],
+            check=True,
+            timeout=30,
+        )
+
+        monkeypatch.setenv("PROMETHEUS_MULTIPROC_DIR", str(tmp_path))
+        test_client, _ = client
+        response = test_client.get("/metrics")
+
+        assert response.status_code == 200
+        assert "text/plain" in response.headers["content-type"]
+        assert "sita_test_multiproc_total 3.0" in response.text
+
 
 class TestCatchAllErrorHandler:
     def test_unhandled_exception_returns_structured_500_not_a_crash(self, client, monkeypatch):

@@ -2,56 +2,133 @@
 headers. See DEF.md § Phase 14.
 """
 
+from app.auth.service import create_user
 from app.core.config import Settings
+from app.models.enums import UserRole
+
+
+def _create_analyst(session_factory, username="analyst1", password="correct-horse-battery"):
+    with session_factory() as db:
+        create_user(db, username, password, UserRole.ANALYST)
+        db.commit()
+    return username, password
+
+
+def _login(test_client, username, password) -> str:
+    response = test_client.post(
+        "/api/v1/auth/login", json={"username": username, "password": password}
+    )
+    assert response.status_code == 200, response.text
+    return response.json()["token"]
 
 
 class TestAuthDisabledByDefault:
-    def test_api_v1_route_works_with_no_token_configured_and_no_header(self, client):
+    def test_api_v1_route_works_with_no_users_configured_and_no_header(self, client):
         test_client, _ = client
         response = test_client.get("/api/v1/incidents")
         assert response.status_code == 200
 
-    def test_health_and_metrics_never_require_auth_even_when_a_token_is_set(
-        self, client, monkeypatch
-    ):
-        test_client, _ = client
-        monkeypatch.setattr(
-            "app.api.deps.get_settings", lambda: Settings(api_auth_token="secret-token")
-        )
+    def test_health_and_metrics_never_require_auth_even_when_enabled(self, client):
+        test_client, session_factory = client
+        _create_analyst(session_factory)
         assert test_client.get("/healthz").status_code == 200
         assert test_client.get("/metrics").status_code == 200
 
 
 class TestAuthEnabled:
-    def test_missing_authorization_header_is_401(self, client, monkeypatch):
-        test_client, _ = client
-        monkeypatch.setattr(
-            "app.api.deps.get_settings", lambda: Settings(api_auth_token="secret-token")
-        )
+    """Auth turns on the moment any User row exists — see
+    app.auth.service.any_users_exist.
+    """
+
+    def test_missing_authorization_header_is_401(self, client):
+        test_client, session_factory = client
+        _create_analyst(session_factory)
         response = test_client.get("/api/v1/incidents")
         assert response.status_code == 401
         assert response.json()["error"]["code"] == "unauthorized"
         assert response.headers["WWW-Authenticate"] == "Bearer"
 
-    def test_wrong_token_is_401(self, client, monkeypatch):
-        test_client, _ = client
-        monkeypatch.setattr(
-            "app.api.deps.get_settings", lambda: Settings(api_auth_token="secret-token")
-        )
+    def test_wrong_token_is_401(self, client):
+        test_client, session_factory = client
+        _create_analyst(session_factory)
         response = test_client.get(
             "/api/v1/incidents", headers={"Authorization": "Bearer wrong-token"}
         )
         assert response.status_code == 401
 
-    def test_correct_token_is_authorized(self, client, monkeypatch):
-        test_client, _ = client
-        monkeypatch.setattr(
-            "app.api.deps.get_settings", lambda: Settings(api_auth_token="secret-token")
-        )
+    def test_correct_token_is_authorized(self, client):
+        test_client, session_factory = client
+        username, password = _create_analyst(session_factory)
+        token = _login(test_client, username, password)
         response = test_client.get(
-            "/api/v1/incidents", headers={"Authorization": "Bearer secret-token"}
+            "/api/v1/incidents", headers={"Authorization": "Bearer " + token}
         )
         assert response.status_code == 200
+
+    def test_wrong_password_is_401_at_login(self, client):
+        test_client, session_factory = client
+        username, _password = _create_analyst(session_factory)
+        response = test_client.post(
+            "/api/v1/auth/login", json={"username": username, "password": "not-it"}
+        )
+        assert response.status_code == 401
+
+    def test_analyst_cannot_trigger_pipeline_run(self, client):
+        test_client, session_factory = client
+        username, password = _create_analyst(session_factory)
+        token = _login(test_client, username, password)
+        response = test_client.post(
+            "/api/v1/pipeline/run", headers={"Authorization": "Bearer " + token}
+        )
+        assert response.status_code == 403
+        assert response.json()["error"]["code"] == "forbidden"
+
+    def test_admin_can_trigger_pipeline_run(self, client):
+        test_client, session_factory = client
+        with session_factory() as db:
+            create_user(db, "admin1", "correct-horse-battery", UserRole.ADMIN)
+            db.commit()
+        token = _login(test_client, "admin1", "correct-horse-battery")
+        response = test_client.post(
+            "/api/v1/pipeline/run", headers={"Authorization": "Bearer " + token}
+        )
+        assert response.status_code == 200
+
+    def test_analyst_cannot_trigger_reanalyze(self, client):
+        test_client, session_factory = client
+        username, password = _create_analyst(session_factory)
+        token = _login(test_client, username, password)
+        response = test_client.post(
+            "/api/v1/pipeline/reanalyze", headers={"Authorization": "Bearer " + token}
+        )
+        assert response.status_code == 403
+        assert response.json()["error"]["code"] == "forbidden"
+
+    def test_admin_can_trigger_reanalyze(self, client):
+        test_client, session_factory = client
+        with session_factory() as db:
+            create_user(db, "admin1", "correct-horse-battery", UserRole.ADMIN)
+            db.commit()
+        token = _login(test_client, "admin1", "correct-horse-battery")
+        response = test_client.post(
+            "/api/v1/pipeline/reanalyze", headers={"Authorization": "Bearer " + token}
+        )
+        assert response.status_code == 200
+
+    def test_logout_revokes_the_token(self, client):
+        test_client, session_factory = client
+        username, password = _create_analyst(session_factory)
+        token = _login(test_client, username, password)
+
+        logout_response = test_client.post(
+            "/api/v1/auth/logout", headers={"Authorization": "Bearer " + token}
+        )
+        assert logout_response.status_code == 204
+
+        response = test_client.get(
+            "/api/v1/incidents", headers={"Authorization": "Bearer " + token}
+        )
+        assert response.status_code == 401
 
 
 class TestRateLimiting:
