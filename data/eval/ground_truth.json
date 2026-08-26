@@ -1,0 +1,438 @@
+{
+  "dataset_version": "eval-v1",
+  "detection_cases": [
+    {
+      "case_id": "ssh_brute_force_tp_1",
+      "source_type": "auth",
+      "marker": "eval-sshbf-tp1.internal",
+      "expect_alert": true,
+      "expected_rule_key": "ssh_brute_force",
+      "also_expected_rule_keys": [],
+      "description": "12 failed logins, 1 source IP, 1 host, within 300s \u2014 over the 10-failure threshold"
+    },
+    {
+      "case_id": "ssh_brute_force_tp_2",
+      "source_type": "auth",
+      "marker": "eval-sshbf-tp2.internal",
+      "expect_alert": true,
+      "expected_rule_key": "ssh_brute_force",
+      "also_expected_rule_keys": [],
+      "description": "15 failed logins, 1 source IP, 1 host, within 300s \u2014 over the 10-failure threshold"
+    },
+    {
+      "case_id": "ssh_brute_force_tp_3",
+      "source_type": "auth",
+      "marker": "eval-sshbf-tp3.internal",
+      "expect_alert": true,
+      "expected_rule_key": "ssh_brute_force",
+      "also_expected_rule_keys": [],
+      "description": "20 failed logins, 1 source IP, 1 host, within 300s \u2014 over the 10-failure threshold"
+    },
+    {
+      "case_id": "ssh_brute_force_tn_1",
+      "source_type": "auth",
+      "marker": "eval-sshbf-tn1.internal",
+      "expect_alert": false,
+      "expected_rule_key": null,
+      "also_expected_rule_keys": [],
+      "description": "5 failed logins \u2014 under the 10-failure threshold, should not alert"
+    },
+    {
+      "case_id": "ssh_brute_force_tn_2",
+      "source_type": "auth",
+      "marker": "eval-sshbf-tn2.internal",
+      "expect_alert": false,
+      "expected_rule_key": null,
+      "also_expected_rule_keys": [],
+      "description": "8 failed logins \u2014 under the 10-failure threshold, should not alert"
+    },
+    {
+      "case_id": "password_spraying_tp_1",
+      "source_type": "auth",
+      "marker": "198.51.141.7",
+      "expect_alert": true,
+      "expected_rule_key": "password_spraying",
+      "also_expected_rule_keys": [],
+      "description": "6 distinct usernames, 1 attempt each, 1 source IP, within 600s \u2014 over the 5-user threshold"
+    },
+    {
+      "case_id": "password_spraying_tp_2",
+      "source_type": "auth",
+      "marker": "198.51.142.7",
+      "expect_alert": true,
+      "expected_rule_key": "password_spraying",
+      "also_expected_rule_keys": [],
+      "description": "8 distinct usernames, 1 attempt each, 1 source IP, within 600s \u2014 over the 5-user threshold"
+    },
+    {
+      "case_id": "password_spraying_tp_3",
+      "source_type": "auth",
+      "marker": "198.51.143.7",
+      "expect_alert": true,
+      "expected_rule_key": "password_spraying",
+      "also_expected_rule_keys": [],
+      "description": "9 distinct usernames, 1 attempt each, 1 source IP, within 600s \u2014 over the 5-user threshold"
+    },
+    {
+      "case_id": "password_spraying_tn_1",
+      "source_type": "auth",
+      "marker": "198.51.151.7",
+      "expect_alert": false,
+      "expected_rule_key": null,
+      "also_expected_rule_keys": [],
+      "description": "3 distinct usernames \u2014 under the 5-user threshold, should not alert"
+    },
+    {
+      "case_id": "password_spraying_tn_2",
+      "source_type": "auth",
+      "marker": "198.51.152.7",
+      "expect_alert": false,
+      "expected_rule_key": null,
+      "also_expected_rule_keys": [],
+      "description": "4 distinct usernames \u2014 under the 5-user threshold, should not alert"
+    },
+    {
+      "case_id": "suspicious_auth_pattern_offhours_tp_1",
+      "source_type": "auth",
+      "marker": "eval-offhours-user1",
+      "expect_alert": true,
+      "expected_rule_key": "suspicious_auth_pattern",
+      "also_expected_rule_keys": [],
+      "description": "Successful login at 03:00 UTC \u2014 off-hours"
+    },
+    {
+      "case_id": "suspicious_auth_pattern_offhours_tp_2",
+      "source_type": "auth",
+      "marker": "eval-offhours-user2",
+      "expect_alert": true,
+      "expected_rule_key": "suspicious_auth_pattern",
+      "also_expected_rule_keys": [],
+      "description": "Successful login at 03:00 UTC \u2014 off-hours"
+    },
+    {
+      "case_id": "suspicious_auth_pattern_offhours_tp_3",
+      "source_type": "auth",
+      "marker": "eval-offhours-user3",
+      "expect_alert": true,
+      "expected_rule_key": "suspicious_auth_pattern",
+      "also_expected_rule_keys": [],
+      "description": "Successful login at 03:00 UTC \u2014 off-hours"
+    },
+    {
+      "case_id": "suspicious_auth_pattern_tn_1",
+      "source_type": "auth",
+      "marker": "eval-onhours-user1",
+      "expect_alert": false,
+      "expected_rule_key": null,
+      "also_expected_rule_keys": [],
+      "description": "Successful login at 14:00 UTC, normal hours, no prior-IP anomaly \u2014 should not alert"
+    },
+    {
+      "case_id": "suspicious_auth_pattern_tn_2",
+      "source_type": "auth",
+      "marker": "eval-onhours-user2",
+      "expect_alert": false,
+      "expected_rule_key": null,
+      "also_expected_rule_keys": [],
+      "description": "Successful login at 14:00 UTC, normal hours, no prior-IP anomaly \u2014 should not alert"
+    },
+    {
+      "case_id": "repeated_auth_failures_tp_1",
+      "source_type": "auth",
+      "marker": "eval-distfail-tp1.internal",
+      "expect_alert": true,
+      "expected_rule_key": "repeated_auth_failures",
+      "also_expected_rule_keys": [],
+      "description": "25 failures across 4 distinct source IPs, 1 host, within 900s"
+    },
+    {
+      "case_id": "repeated_auth_failures_tp_2",
+      "source_type": "auth",
+      "marker": "eval-distfail-tp2.internal",
+      "expect_alert": true,
+      "expected_rule_key": "repeated_auth_failures",
+      "also_expected_rule_keys": [],
+      "description": "30 failures across 5 distinct source IPs, 1 host, within 900s"
+    },
+    {
+      "case_id": "repeated_auth_failures_tp_3",
+      "source_type": "auth",
+      "marker": "eval-distfail-tp3.internal",
+      "expect_alert": true,
+      "expected_rule_key": "repeated_auth_failures",
+      "also_expected_rule_keys": [],
+      "description": "22 failures across 3 distinct source IPs, 1 host, within 900s"
+    },
+    {
+      "case_id": "repeated_auth_failures_tn_1",
+      "source_type": "auth",
+      "marker": "eval-distfail-tn1.internal",
+      "expect_alert": false,
+      "expected_rule_key": null,
+      "also_expected_rule_keys": [],
+      "description": "10 failures across only 2 distinct IPs \u2014 under threshold, should not alert"
+    },
+    {
+      "case_id": "repeated_auth_failures_tn_2",
+      "source_type": "auth",
+      "marker": "eval-distfail-tn2.internal",
+      "expect_alert": false,
+      "expected_rule_key": null,
+      "also_expected_rule_keys": [],
+      "description": "15 failures across only 2 distinct IPs \u2014 under threshold, should not alert"
+    },
+    {
+      "case_id": "port_scanning_tp_1",
+      "source_type": "network",
+      "marker": "198.51.161.20",
+      "expect_alert": true,
+      "expected_rule_key": "port_scanning",
+      "also_expected_rule_keys": [],
+      "description": "7 distinct destination ports within 60s from one source IP"
+    },
+    {
+      "case_id": "port_scanning_tp_2",
+      "source_type": "network",
+      "marker": "198.51.162.20",
+      "expect_alert": true,
+      "expected_rule_key": "port_scanning",
+      "also_expected_rule_keys": [],
+      "description": "10 distinct destination ports within 60s from one source IP"
+    },
+    {
+      "case_id": "port_scanning_tp_3",
+      "source_type": "network",
+      "marker": "198.51.163.20",
+      "expect_alert": true,
+      "expected_rule_key": "port_scanning",
+      "also_expected_rule_keys": [],
+      "description": "15 distinct destination ports within 60s from one source IP"
+    },
+    {
+      "case_id": "port_scanning_tn_1",
+      "source_type": "network",
+      "marker": "198.51.171.20",
+      "expect_alert": false,
+      "expected_rule_key": null,
+      "also_expected_rule_keys": [],
+      "description": "3 distinct ports \u2014 under the 6-port threshold, should not alert"
+    },
+    {
+      "case_id": "port_scanning_tn_2",
+      "source_type": "network",
+      "marker": "198.51.172.20",
+      "expect_alert": false,
+      "expected_rule_key": null,
+      "also_expected_rule_keys": [],
+      "description": "4 distinct ports \u2014 under the 6-port threshold, should not alert"
+    },
+    {
+      "case_id": "suspicious_powershell_tp_1",
+      "source_type": "endpoint",
+      "marker": "eval-ps-tp1.internal",
+      "expect_alert": true,
+      "expected_rule_key": "suspicious_powershell",
+      "also_expected_rule_keys": [],
+      "description": "PowerShell command line matching the -enc indicator"
+    },
+    {
+      "case_id": "suspicious_powershell_tp_2",
+      "source_type": "endpoint",
+      "marker": "eval-ps-tp2.internal",
+      "expect_alert": true,
+      "expected_rule_key": "suspicious_powershell",
+      "also_expected_rule_keys": [],
+      "description": "PowerShell command line matching the hidden+bypass indicator"
+    },
+    {
+      "case_id": "suspicious_powershell_tp_3",
+      "source_type": "endpoint",
+      "marker": "eval-ps-tp3.internal",
+      "expect_alert": true,
+      "expected_rule_key": "suspicious_powershell",
+      "also_expected_rule_keys": [],
+      "description": "PowerShell command line matching the download-cradle indicator"
+    },
+    {
+      "case_id": "suspicious_powershell_tn_1",
+      "source_type": "endpoint",
+      "marker": "eval-ps-tn1.internal",
+      "expect_alert": false,
+      "expected_rule_key": null,
+      "also_expected_rule_keys": [],
+      "description": "plain command line, no suspicious indicators \u2014 should not alert"
+    },
+    {
+      "case_id": "suspicious_powershell_tn_2",
+      "source_type": "endpoint",
+      "marker": "eval-ps-tn2.internal",
+      "expect_alert": false,
+      "expected_rule_key": null,
+      "also_expected_rule_keys": [],
+      "description": "non-powershell command line, no suspicious indicators \u2014 should not alert"
+    },
+    {
+      "case_id": "impossible_travel_tp_1",
+      "source_type": "auth",
+      "marker": "eval-travel-tp1",
+      "expect_alert": true,
+      "expected_rule_key": "impossible_travel",
+      "also_expected_rule_keys": [
+        "suspicious_auth_pattern"
+      ],
+      "description": "Same user, 203.0.113.7 then 198.51.100.23 10 minutes apart \u2014 implies impossible speed"
+    },
+    {
+      "case_id": "impossible_travel_tp_2",
+      "source_type": "auth",
+      "marker": "eval-travel-tp2",
+      "expect_alert": true,
+      "expected_rule_key": "impossible_travel",
+      "also_expected_rule_keys": [
+        "suspicious_auth_pattern"
+      ],
+      "description": "Same user, 198.51.100.23 then 198.51.100.88 15 minutes apart \u2014 implies impossible speed"
+    },
+    {
+      "case_id": "impossible_travel_tn_1",
+      "source_type": "auth",
+      "marker": "eval-travel-tn1",
+      "expect_alert": false,
+      "expected_rule_key": null,
+      "also_expected_rule_keys": [
+        "suspicious_auth_pattern"
+      ],
+      "description": "Same user, two distant locations, but 20 hours apart \u2014 plausible travel time"
+    }
+  ],
+  "ioc_cases": [
+    {
+      "case_id": "ioc_ipv4",
+      "marker": "185.220.101.204",
+      "expected_ioc_type": "ipv4",
+      "expected_value": "185.220.101.204",
+      "forbidden_ioc_type": null,
+      "forbidden_value": null,
+      "description": "Public IPv4 in a network event's src_ip"
+    },
+    {
+      "case_id": "ioc_ipv6",
+      "marker": "eval-ioc-dns.internal",
+      "expected_ioc_type": "ipv6",
+      "expected_value": "2606:4700:4701::1234",
+      "forbidden_ioc_type": null,
+      "forbidden_value": null,
+      "description": "Public IPv6 in a DNS response's resolved_ips"
+    },
+    {
+      "case_id": "ioc_domain",
+      "marker": "eval-ioc-dns2.internal",
+      "expected_ioc_type": "domain",
+      "expected_value": "eval-c2-beacon.example",
+      "forbidden_ioc_type": null,
+      "forbidden_value": null,
+      "description": "Domain in a DNS query_name"
+    },
+    {
+      "case_id": "ioc_url",
+      "marker": "eval-ioc-ws.internal",
+      "expected_ioc_type": "url",
+      "expected_value": "http://eval-payload-host.example/drop.bin",
+      "forbidden_ioc_type": null,
+      "forbidden_value": null,
+      "description": "URL embedded in a command line"
+    },
+    {
+      "case_id": "ioc_email",
+      "marker": "eval-ioc-web.internal",
+      "expected_ioc_type": "email",
+      "expected_value": "eval-victim@example.com",
+      "forbidden_ioc_type": null,
+      "forbidden_value": null,
+      "description": "Email address in a web request path"
+    },
+    {
+      "case_id": "ioc_file_hash_md5",
+      "marker": "eval-ioc-ws2.internal",
+      "expected_ioc_type": "file_hash_md5",
+      "expected_value": "d41d8cd98f00b204e9800998ecf8427e",
+      "forbidden_ioc_type": null,
+      "forbidden_value": null,
+      "description": "MD5 hash in a command line"
+    },
+    {
+      "case_id": "ioc_file_hash_sha1",
+      "marker": "eval-ioc-ws3.internal",
+      "expected_ioc_type": "file_hash_sha1",
+      "expected_value": "da39a3ee5e6b4b0d3255bfef95601890afd80709",
+      "forbidden_ioc_type": null,
+      "forbidden_value": null,
+      "description": "SHA1 hash in a command line"
+    },
+    {
+      "case_id": "ioc_file_hash_sha256",
+      "marker": "eval-ioc-ws4.internal",
+      "expected_ioc_type": "file_hash_sha256",
+      "expected_value": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "forbidden_ioc_type": null,
+      "forbidden_value": null,
+      "description": "SHA256 hash in a command line"
+    },
+    {
+      "case_id": "ioc_username",
+      "marker": "eval-ioc-auth.internal",
+      "expected_ioc_type": "username",
+      "expected_value": "eval-ghost-user",
+      "forbidden_ioc_type": null,
+      "forbidden_value": null,
+      "description": "Username field on an auth event"
+    },
+    {
+      "case_id": "ioc_negative_private_ip_scan",
+      "marker": "eval-ioc-neg1.internal",
+      "expected_ioc_type": null,
+      "expected_value": null,
+      "forbidden_ioc_type": "ipv4",
+      "forbidden_value": "10.9.0.201",
+      "description": "Private IP in free text (command_line scan) \u2014 ipv4.scan() filters private ranges"
+    },
+    {
+      "case_id": "ioc_negative_reserved_domain_scan",
+      "marker": "eval-ioc-neg2.internal",
+      "expected_ioc_type": null,
+      "expected_value": null,
+      "forbidden_ioc_type": "domain",
+      "forbidden_value": "eval-backup-host.internal",
+      "description": "Reserved-TLD hostname in free text \u2014 domain.scan() filters .internal"
+    },
+    {
+      "case_id": "ioc_negative_malformed_hash",
+      "marker": "eval-ioc-neg3.internal",
+      "expected_ioc_type": null,
+      "expected_value": null,
+      "forbidden_ioc_type": "file_hash_md5",
+      "forbidden_value": "deadbeef01",
+      "description": "10-char hex string \u2014 too short/wrong-length to be a real file hash"
+    }
+  ],
+  "correlation_cases": [
+    {
+      "case_id": "multi_stage",
+      "source_types": [
+        "auth",
+        "network",
+        "endpoint"
+      ],
+      "expect_single_incident": true,
+      "description": "SSH brute force -> port scan -> PowerShell, same attacker IP/host \u2014 should merge into one incident"
+    },
+    {
+      "case_id": "unrelated_pair",
+      "source_types": [
+        "auth"
+      ],
+      "expect_single_incident": false,
+      "description": "Two standalone ssh_brute_force bursts, different hosts/IPs, 3 days apart \u2014 must stay separate incidents"
+    }
+  ]
+}

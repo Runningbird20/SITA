@@ -161,13 +161,25 @@ export const PHASES: Phase[] = [
     id: 11,
     title: "Testing",
     goal: "Confidence that the pipeline is correct and stays correct.",
-    evaluate: notImplemented,
+    // No REST resource of its own to live-check — the suite runs in CI, not
+    // behind an endpoint. Genuinely complete: 342 backend tests, 98% line
+    // coverage (95% CI floor), run against both SQLite and a real Postgres
+    // instance on every CI run, plus failure-injection tests. See
+    // Documentation/PHASE-11.md.
+    evaluate: staticImplemented,
   },
   {
     id: 12,
     title: "Performance and Evaluation",
     goal: "Measured, defensible numbers — precision/recall, throughput, latency.",
-    evaluate: notImplemented,
+    // CLI-driven (app.evaluation.cli, app.benchmark.cli), not a REST
+    // resource — no live check to point at. Genuinely complete: a
+    // held-out eval dataset scoring 1.0 precision/recall across detection,
+    // IOC extraction, and correlation, plus real throughput/latency
+    // benchmarks and a live AI-grounding check. See
+    // Documentation/PHASE-12.md, docs/evaluation_methodology.md, and
+    // docs/benchmarks.md.
+    evaluate: staticImplemented,
   },
   {
     id: 13,

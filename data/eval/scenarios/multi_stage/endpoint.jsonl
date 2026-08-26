@@ -1,0 +1,1 @@
+{"timestamp": "2026-03-01T06:10:00Z", "host": "eval-corr-target.internal", "process_name": "powershell.exe", "command_line": "powershell.exe -Enc SQBFAFgA -WindowStyle Hidden", "pid": 9000, "parent_pid": 8999, "parent_process_name": "cmd.exe", "user": "admin"}

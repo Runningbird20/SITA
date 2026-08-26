@@ -1,0 +1,1 @@
+{"timestamp": "2026-03-01T06:00:00Z", "host": "eval-ioc-web.internal", "method": "POST", "path": "/api/reset?email=eval-victim@example.com", "status_code": 200, "source_ip": "10.9.0.60", "user_agent": "Mozilla/5.0 (Eval Dataset)"}

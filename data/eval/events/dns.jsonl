@@ -1,0 +1,2 @@
+{"timestamp": "2026-03-01T06:00:00Z", "host": "eval-ioc-dns.internal", "query_name": "eval-ipv6-lookup.example", "query_type": "A", "response_code": "NOERROR", "resolver_ip": "10.9.0.2", "resolved_ips": ["2606:4700:4701::1234"]}
+{"timestamp": "2026-03-01T06:00:00Z", "host": "eval-ioc-dns2.internal", "query_name": "eval-c2-beacon.example", "query_type": "A", "response_code": "NOERROR", "resolver_ip": "10.9.0.2"}

@@ -167,14 +167,23 @@ Phase 10 (frontend — a real SOC-style dashboard: overview, alert and
 incident lists, an incident detail page with a visually distinct AI
 analysis panel, an IOC explorer, a detections page, and a MITRE technique
 library, all live against the Phase 9 API; the original build-status page
-moved to `/status` rather than being replaced), and Phase 11 (testing — an
+moved to `/status` rather than being replaced), Phase 11 (testing — an
 audited, coverage-enforced suite: 338 backend tests at 99% line coverage
 with a 95% CI floor, run against both SQLite and a real Postgres instance
 on every CI run, plus failure-injection tests proving the system degrades
-gracefully — not crashes — when the database or the LLM is unavailable).
+gracefully — not crashes — when the database or the LLM is unavailable),
+and Phase 12 (performance and evaluation — a generated, held-out dataset
+(`data/eval/`) distinct from the dev/demo data, scoring detection
+(1.0 precision/recall across all 7 rules), IOC extraction (1.0
+precision/recall across all 9 types), and correlation (1.0 accuracy)
+against it; automated AI-output grounding checks against a live local
+model, honestly reporting a 0% grounding rate and one hallucinated
+classification; and real pipeline throughput / API latency benchmarks —
+see [docs/evaluation_methodology.md](docs/evaluation_methodology.md) and
+[docs/benchmarks.md](docs/benchmarks.md)).
 See [Documentation/](Documentation/) for the detailed report on each
 completed phase, and [TODO.md](TODO.md) for the full roadmap and what's
-next (Phase 12: Performance and Evaluation).
+next (Phase 13: Observability).
 
 ## License
 
