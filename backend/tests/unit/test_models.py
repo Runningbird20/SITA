@@ -63,6 +63,7 @@ def _make_event() -> SecurityEvent:
 def _make_alert(detection: Detection) -> Alert:
     return Alert(
         detection=detection,
+        fingerprint=f"test-fixture-{uuid.uuid4()}",
         severity=Severity.HIGH,
         confidence=0.9,
         status=AlertStatus.NEW,
@@ -222,6 +223,7 @@ class TestForeignKeyIntegrity:
     def test_alert_requires_existing_detection(self, db_session):
         alert = Alert(
             detection_id=uuid.UUID("00000000-0000-0000-0000-000000000000"),
+            fingerprint=f"test-fixture-{uuid.uuid4()}",
             severity=Severity.LOW,
             confidence=0.5,
             status=AlertStatus.NEW,

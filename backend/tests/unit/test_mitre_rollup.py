@@ -1,3 +1,4 @@
+import uuid
 from datetime import UTC, datetime
 
 from app.mitre.rollup import incident_technique_rollup, techniques_by_tactic
@@ -44,6 +45,7 @@ def _make_incident_with_alert(db_session) -> tuple[Incident, Alert]:
 
     alert = Alert(
         detection_id=detection.id,
+        fingerprint=f"test-fixture-{uuid.uuid4()}",
         incident_id=incident.id,
         severity=Severity.HIGH,
         confidence=0.8,

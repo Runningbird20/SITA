@@ -119,6 +119,7 @@ def seed_full_incident(session_factory: sessionmaker[Session]) -> dict:
 
         alert = Alert(
             detection_id=detection.id,
+            fingerprint="test-fixture-fingerprint-seed-full-incident",
             incident_id=incident.id,
             severity=Severity.HIGH,
             confidence=0.85,

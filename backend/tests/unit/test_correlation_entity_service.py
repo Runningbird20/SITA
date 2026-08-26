@@ -61,6 +61,7 @@ class TestLinkAlert:
         )
         alert = Alert(
             detection=detection,
+            fingerprint="test-fixture-fingerprint",
             severity="low",
             confidence=0.5,
             status=AlertStatus.NEW,

@@ -28,6 +28,13 @@ alerts_created_total = Counter(
     ["rule_key"],
 )
 
+alerts_duplicate_skipped_total = Counter(
+    "sita_alerts_duplicate_skipped_total",
+    "Findings skipped because an Alert with the same fingerprint already "
+    "exists — a re-run over an overlapping window, not a new detection.",
+    ["rule_key"],
+)
+
 detection_rule_duration_seconds = Histogram(
     "sita_detection_rule_duration_seconds",
     "Time spent evaluating a single detection rule against loaded events.",

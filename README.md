@@ -62,7 +62,7 @@ and `## Enabling real AI triage` below for how to turn it on).
 | Backend | Python + FastAPI |
 | Database | PostgreSQL (Docker) / SQLite (local dev) |
 | Frontend | React + TypeScript + Vite |
-| Local LLM | Ollama, behind a swappable `LLMProvider` interface |
+| LLM | Local by default (Ollama / LM Studio) behind a swappable `LLMProvider` interface; optional bring-your-own-key OpenAI/Anthropic |
 | Containerization | Docker / Docker Compose |
 | Backend package manager | [uv](https://docs.astral.sh/uv/) |
 | Backend lint/format | Ruff |
@@ -141,18 +141,69 @@ With `LLM_PROVIDER=mock` (the default in `.env.example`), the full app runs
 with zero LLM network dependency — every deterministic part of the pipeline
 (detection, IOC extraction, correlation, MITRE mapping) is fully populated,
 and the AI analysis panel shows an unvalidated placeholder rather than a real
-model response. To get real AI-generated summaries, severity explanations,
-and investigation suggestions:
+model response. `LLM_PROVIDER` supports five values — set it in `.env`,
+then recreate the backend service to pick up the change
+(`docker compose up -d --force-recreate backend`):
+
+| `LLM_PROVIDER` | Where it runs | API key |
+|---|---|---|
+| `mock` (default) | Nowhere — canned responses | none |
+| `ollama` | Fully local ([ollama.com](https://ollama.com)) | none |
+| `lm_studio` | Fully local ([lmstudio.ai](https://lmstudio.ai)) | none |
+| `openai` | OpenAI's API | **bring your own** (`OPENAI_API_KEY`) |
+| `anthropic` | Anthropic's API | **bring your own** (`ANTHROPIC_API_KEY`) |
+
+`openai`/`anthropic` are the one deliberate exception to this project's "no
+paid APIs" default — both are strictly opt-in, off unless you set a key
+yourself, and never touched by any test (see
+[DEF.md § Phase 6](Documentation/DEF.md#post-roadmap-addition-multi-provider-support-bring-your-own-key)
+for why no test ever makes a real call to either). `lm_studio` reuses the
+same fully-local pattern as Ollama — start LM Studio, load a model, set
+`LM_STUDIO_MODEL` to its exact name. Keys live in `.env` on the backend
+only; there's no browser-side key entry.
 
 ```bash
-# Pull a local model for Ollama (first run only — several GB, can take a while)
-docker compose exec ollama ollama pull llama3.1:8b-instruct-q4_K_M
+# Ollama's default model — small (~400MB), fast, zero-friction, but not
+# representative of real triage quality. See "Choosing an Ollama model" below.
+docker compose exec ollama ollama pull qwen2.5:0.5b
 ```
 
-Then set `LLM_PROVIDER=ollama` in `.env` and recreate the backend service
-(`docker compose up -d --force-recreate backend`) to pick up the change. To
-regenerate AI analysis for incidents that already have (mock-invalid)
-results on file, force a fresh run:
+#### Choosing an Ollama model: hardware tradeoffs
+
+`OLLAMA_MODEL` defaults to `qwen2.5:0.5b` (a ~0.5B-parameter model)
+specifically so a first-time `docker compose up`/`./scripts/demo.sh` run
+doesn't force a multi-gigabyte download or need serious hardware just to
+prove the pipeline works end to end — it's a quick-start convenience, not
+a quality recommendation. For triage output worth actually reading,
+switch to a 7–8B instruct model:
+
+```bash
+docker compose exec ollama ollama pull llama3.1:8b-instruct-q4_K_M
+# then set OLLAMA_MODEL=llama3.1:8b-instruct-q4_K_M in .env and:
+docker compose up -d --force-recreate backend
+```
+
+What that upgrade actually costs, so it's not a surprise:
+
+| | `qwen2.5:0.5b` (default) | 7–8B instruct model (recommended for real use) |
+|---|---|---|
+| Download | ~400 MB | ~4.5–5.5 GB (Q4 quantized) |
+| RAM/VRAM while running | ~1 GB | ~6–8 GB free, recommended |
+| Latency per triage task, CPU-only | Sub-second to a few seconds (measured, see [PHASE-15.md](Documentation/PHASE-15.md)) | Meaningfully slower — can be tens of seconds per task without a GPU |
+| Output quality | Noticeably weaker — has produced at least one confirmed hallucinated classification in this project's own evaluation (see [docs/evaluation_methodology.md](docs/evaluation_methodology.md)) | The actual target this project's prompts were designed for |
+
+If triage calls start timing out on slower hardware, raise
+`LLM_REQUEST_TIMEOUT_SECONDS` in `.env` (default `30`) before assuming
+something is broken — a CPU-only 8B model genuinely can take longer than
+30 seconds for some tasks. A GPU (including Apple Silicon's unified
+memory, which Ollama uses automatically) meaningfully closes this gap.
+
+To regenerate AI analysis for incidents that already have results on file
+from a different provider (results are additive, not replaced — see
+[DEF.md § Phase 7](Documentation/DEF.md#phase-7-ai-powered-triage) — the API
+already returns only the latest per task, but forcing a fresh run gets you
+new content, not just a new "latest" pointer to old content), force a fresh
+run:
 
 ```bash
 docker compose exec backend uv run python -m app.triage.cli --force

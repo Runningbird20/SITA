@@ -8,3 +8,4 @@ class DetectionRunReport(BaseModel):
     rules_run: int
     alerts_created: int
     alerts_by_rule: dict[str, int]
+    duplicates_skipped: int = 0

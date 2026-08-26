@@ -1,12 +1,17 @@
 """A deliberately minimal GeoIP resolver for the `impossible_travel` rule.
 
-This is a known stub, not a real geolocation capability — see DEF.md § Phase 3
-and the `[[geoip-resolver-stub]]` entry in TODO.md's Architecture Decisions.
-`StaticGeoIPResolver` only knows about the IP addresses that actually appear
-in this project's synthetic datasets. A real deployment would swap in a
-different `GeoIPResolver` implementation (e.g. backed by a local MaxMind
-GeoLite2 snapshot) behind this same interface — no paid/rate-limited API,
-per the project's "no paid APIs" rule.
+This is a known stub, not a real geolocation capability — see DEF.md §
+Phase 3. `StaticGeoIPResolver` only knows about the IP addresses that
+actually appear in this project's synthetic datasets. A real deployment
+would swap in a different `GeoIPResolver` implementation behind this same
+interface — no paid/rate-limited API, per the project's "no paid APIs" rule.
+
+`[[geoip-resolver-stub]]` resolved (post-roadmap): stays a stub,
+`impossible_travel` is explicitly demo-only until a real dataset is
+bundled, rather than sourcing a free offline snapshot (e.g. MaxMind
+GeoLite2, which now requires a free account/license key even at no cost —
+real friction for a stub whose only current job is making this project's
+own fixture scenario computable). See TODO2.md.
 """
 
 import math

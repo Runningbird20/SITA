@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import DateTime, Float, ForeignKey, Index, String, Text
+from sqlalchemy import DateTime, Float, ForeignKey, Index, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.session import Base
@@ -27,11 +27,19 @@ class Alert(UUIDPKMixin, TimestampMixin, Base):
     """
 
     __tablename__ = "alerts"
-    __table_args__ = (Index("ix_alerts_detection_id_created_at", "detection_id", "created_at"),)
+    __table_args__ = (
+        Index("ix_alerts_detection_id_created_at", "detection_id", "created_at"),
+        UniqueConstraint("fingerprint", name="uq_alerts_fingerprint"),
+    )
 
     detection_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("detections.id"), nullable=False, index=True
     )
+    # SHA-256 hex digest of detection_id + sorted matched event IDs — makes
+    # re-running detection over an overlapping window idempotent instead of
+    # creating duplicate Alerts. See app/detection/base.py::
+    # compute_alert_fingerprint and DEF.md § Phase 3 "Post-roadmap addition".
+    fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
     incident_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("incidents.id"), nullable=True, index=True
     )

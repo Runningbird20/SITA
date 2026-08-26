@@ -110,6 +110,7 @@ def upgrade() -> None:
     op.create_index('ix_security_events_source_type_occurred_at', 'security_events', ['source_type', 'occurred_at'], unique=False)
     op.create_table('alerts',
     sa.Column('detection_id', sa.Uuid(), nullable=False),
+    sa.Column('fingerprint', sa.String(length=64), nullable=False),
     sa.Column('incident_id', sa.Uuid(), nullable=True),
     sa.Column('severity', sa.String(length=20), nullable=False),
     sa.Column('confidence', sa.Float(), nullable=False),
@@ -123,7 +124,8 @@ def upgrade() -> None:
     sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('(CURRENT_TIMESTAMP)'), nullable=False),
     sa.ForeignKeyConstraint(['detection_id'], ['detections.id'], ),
     sa.ForeignKeyConstraint(['incident_id'], ['incidents.id'], ),
-    sa.PrimaryKeyConstraint('id')
+    sa.PrimaryKeyConstraint('id'),
+    sa.UniqueConstraint('fingerprint', name='uq_alerts_fingerprint')
     )
     op.create_index(op.f('ix_alerts_detection_id'), 'alerts', ['detection_id'], unique=False)
     op.create_index('ix_alerts_detection_id_created_at', 'alerts', ['detection_id', 'created_at'], unique=False)

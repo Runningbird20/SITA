@@ -3,6 +3,7 @@ window of events in, zero or more findings out — never anything LLM-derived.
 See DEF.md § Phase 3 for the full design.
 """
 
+import hashlib
 import uuid
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
@@ -27,6 +28,17 @@ class RuleFinding:
     severity_factors: dict
     first_event_at: datetime
     last_event_at: datetime
+
+
+def compute_alert_fingerprint(detection_id: uuid.UUID, matched_event_ids: list[uuid.UUID]) -> str:
+    """Identifies "the same finding" regardless of what `since` window
+    produced it — resolves `[[detection-run-idempotency]]`, see DEF.md §
+    Phase 3 "Post-roadmap addition". Sorted before hashing so the result
+    doesn't depend on the order a rule happens to return matches in.
+    """
+    sorted_ids = sorted(str(event_id) for event_id in matched_event_ids)
+    raw = f"{detection_id}:{','.join(sorted_ids)}"
+    return hashlib.sha256(raw.encode()).hexdigest()
 
 
 _SEVERITY_WEIGHT: dict[Severity, float] = {

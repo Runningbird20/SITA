@@ -33,7 +33,11 @@ services:
     volumes:
       - ollama_data:/root/.ollama
     # No API key required — this is a fully local model runtime.
-    # After first `docker compose up`, pull the model with:
+    # After first `docker compose up`, pull the default (small, fast,
+    # zero-friction — not the recommended model for real quality) with:
+    #   docker compose exec ollama ollama pull qwen2.5:0.5b
+    # For real triage quality, pull a 7-8B instruct model instead — see
+    # README's "Enabling real AI triage" for hardware tradeoffs:
     #   docker compose exec ollama ollama pull llama3.1:8b-instruct-q4_K_M
     healthcheck:
       # Succeeds once the daemon is up, regardless of whether a model has
@@ -53,6 +57,17 @@ services:
     environment:
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-sita}:${POSTGRES_PASSWORD:-sita}@postgres:5432/${POSTGRES_DB:-sita}
       OLLAMA_BASE_URL: http://ollama:11434
+      # LM Studio isn't a service in this compose file — it's a desktop app
+      # assumed to run on the host, not in a container. `localhost` from
+      # inside this container refers to the container itself, not the host,
+      # so LM_STUDIO_BASE_URL's own .env default (localhost:1234) would
+      # silently point nowhere here. host.docker.internal is Docker
+      # Desktop's DNS name for "the host machine" (works out of the box on
+      # Mac/Windows; on Linux add `extra_hosts: ["host.docker.internal:host-gateway"]`
+      # if needed) — only applied here, in the container-specific override,
+      # so a native (non-Docker) backend run still uses the plain
+      # localhost default in .env, which is correct for that path.
+      LM_STUDIO_BASE_URL: http://host.docker.internal:1234/v1
     ports:
       - "127.0.0.1:8000:8000"
     depends_on:

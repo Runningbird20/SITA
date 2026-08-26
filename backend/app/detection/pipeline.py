@@ -1,11 +1,11 @@
 """Runs every enabled detection rule against currently-persisted
 SecurityEvents and persists any resulting Alerts. See DEF.md § Phase 3.
 
-Known limitation: this does not deduplicate. Re-running over an
-already-processed time range creates duplicate Alert rows for the same
-underlying events — `since` lets a caller scope a run to new data, but
-avoiding overlap is the caller's responsibility. Tracked as
-[[detection-run-idempotency]] in TODO.md.
+Idempotent re-runs: a finding whose fingerprint (detection_id + sorted
+matched event IDs) already exists as an Alert is skipped rather than
+duplicated — resolves [[detection-run-idempotency]], see DEF.md § Phase 3
+"Post-roadmap addition". `since` still scopes which events a rule
+considers (for performance), but overlap no longer risks duplicate Alerts.
 """
 
 import logging
@@ -15,7 +15,12 @@ from datetime import datetime
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.core.metrics import alerts_created_total, detection_rule_duration_seconds
+from app.core.metrics import (
+    alerts_created_total,
+    alerts_duplicate_skipped_total,
+    detection_rule_duration_seconds,
+)
+from app.detection.base import compute_alert_fingerprint
 from app.detection.registry import RULES
 from app.detection.seed import ensure_detections_seeded
 from app.models.alert import Alert
@@ -40,6 +45,11 @@ def run_detection(db: Session, since: datetime | None = None) -> DetectionRunRep
     detections_by_key = ensure_detections_seeded(db)
     alerts_by_rule: dict[str, int] = {rule.rule_key: 0 for rule in RULES}
     alerts_created = 0
+    duplicates_skipped = 0
+    # One query for the whole run, not per rule/finding — updated in-memory
+    # as new alerts are added so two identical findings within this same
+    # run also can't double-create.
+    seen_fingerprints = set(db.scalars(select(Alert.fingerprint)).all())
 
     for rule in RULES:
         detection = detections_by_key[rule.rule_key]
@@ -56,9 +66,17 @@ def run_detection(db: Session, since: datetime | None = None) -> DetectionRunRep
             time.monotonic() - start
         )
 
+        rule_duplicates = 0
         for finding in findings:
+            fingerprint = compute_alert_fingerprint(detection.id, finding.matched_event_ids)
+            if fingerprint in seen_fingerprints:
+                rule_duplicates += 1
+                continue
+            seen_fingerprints.add(fingerprint)
+
             alert = Alert(
                 detection_id=detection.id,
+                fingerprint=fingerprint,
                 severity=finding.severity,
                 confidence=finding.confidence,
                 rationale=finding.rationale,
@@ -74,8 +92,11 @@ def run_detection(db: Session, since: datetime | None = None) -> DetectionRunRep
             alerts_created += 1
             alerts_by_rule[rule.rule_key] += 1
 
-        if findings:
-            alerts_created_total.labels(rule_key=rule.rule_key).inc(len(findings))
+        if alerts_by_rule[rule.rule_key]:
+            alerts_created_total.labels(rule_key=rule.rule_key).inc(alerts_by_rule[rule.rule_key])
+        if rule_duplicates:
+            alerts_duplicate_skipped_total.labels(rule_key=rule.rule_key).inc(rule_duplicates)
+            duplicates_skipped += rule_duplicates
 
     db.flush()
 
@@ -86,6 +107,7 @@ def run_detection(db: Session, since: datetime | None = None) -> DetectionRunRep
             "rules_run": len(RULES),
             "alerts_created": alerts_created,
             "alerts_by_rule": alerts_by_rule,
+            "duplicates_skipped": duplicates_skipped,
         },
     )
 
@@ -94,4 +116,5 @@ def run_detection(db: Session, since: datetime | None = None) -> DetectionRunRep
         rules_run=len(RULES),
         alerts_created=alerts_created,
         alerts_by_rule=alerts_by_rule,
+        duplicates_skipped=duplicates_skipped,
     )
