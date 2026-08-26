@@ -82,8 +82,23 @@ def build_incident_context(incident: Incident) -> IncidentContext:
     )
 
 
+_BEGIN_MARKER = "===BEGIN INCIDENT DATA (untrusted)==="
+_END_MARKER = "===END INCIDENT DATA==="
+
+
 def render_context_block(ctx: IncidentContext) -> str:
+    """Wrapped in explicit delimiters — DEF.md § Phase 14's prompt-injection
+    mitigation. Alert rationale, IOC values, and other event-derived text
+    embedded below may, in a real (non-synthetic) deployment, be shaped by
+    whoever generated the underlying log activity — the delimiters are a
+    structural signal to the model that everything between them is data to
+    summarize, never instructions to follow. Best-effort, not a guarantee:
+    the real backstop is strict output-schema enforcement (see
+    app/llm/validation.py and _StrictOutput), which bounds what any
+    successfully-injected text could ever actually change.
+    """
     lines = [
+        _BEGIN_MARKER,
         f"Incident: {ctx.title}",
         f"Status: {ctx.status}    Deterministic severity: {ctx.severity}",
         f"Activity window: {ctx.first_activity_at.isoformat()} to {ctx.last_activity_at.isoformat()}",
@@ -110,5 +125,7 @@ def render_context_block(ctx: IncidentContext) -> str:
         lines.extend(f"- {technique_id}" for technique_id in ctx.rule_mitre_techniques)
     else:
         lines.append("- none yet")
+
+    lines.append(_END_MARKER)
 
     return "\n".join(lines)

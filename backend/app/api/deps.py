@@ -3,13 +3,15 @@ pagination params and the whitelisted-sort-field validator. See DEF.md §
 Phase 9.
 """
 
+import hmac
 from dataclasses import dataclass
 
-from fastapi import Query
+from fastapi import Header, Query
 from sqlalchemy import Select
 from sqlalchemy.orm import InstrumentedAttribute
 
-from app.core.exceptions import InvalidQueryParameterError
+from app.core.config import get_settings
+from app.core.exceptions import InvalidQueryParameterError, UnauthorizedError
 
 
 @dataclass
@@ -23,6 +25,26 @@ def pagination_params(
     offset: int = Query(0, ge=0, description="Rows to skip"),
 ) -> PageParams:
     return PageParams(limit=limit, offset=offset)
+
+
+def require_auth(authorization: str | None = Header(None)) -> None:
+    """Dependency added to every /api/v1/* router. See DEF.md § Phase 14.
+
+    A no-op when settings.api_auth_token is unset (the default) — auth is
+    opt-in, not mandatory-on, so every existing quick-start command and
+    test keeps working with no Authorization header at all. When a token
+    is configured, requires `Authorization: Bearer <token>` matching
+    exactly (constant-time compare — a token is a real secret, not just a
+    feature flag).
+    """
+    token = get_settings().api_auth_token
+    if not token:
+        return
+    if authorization is None or not authorization.startswith("Bearer "):
+        raise UnauthorizedError()
+    presented = authorization.removeprefix("Bearer ")
+    if not hmac.compare_digest(presented, token):
+        raise UnauthorizedError()
 
 
 def apply_sort[T](

@@ -191,7 +191,14 @@ export const PHASES: Phase[] = [
     id: 14,
     title: "Security Hardening",
     goal: "The project's own security posture, treated as part of the pitch.",
-    evaluate: notImplemented,
+    // Touches every existing endpoint (auth, rate limiting, headers)
+    // rather than adding one of its own to check — no single REST
+    // resource this phase could point a live check at. Genuinely
+    // complete and verified against a real running server, not just
+    // pytest: auth (401/200 with/without a token), rate limiting (429
+    // past the strict-tier threshold), and security headers all
+    // confirmed live. See Documentation/PHASE-14.md.
+    evaluate: staticImplemented,
   },
   {
     id: 15,

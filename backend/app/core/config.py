@@ -21,6 +21,14 @@ class Settings(BaseSettings):
 
     # API
     api_v1_prefix: str = "/api/v1"
+    # Empty = auth disabled (the default — every existing quick-start
+    # command and test client calls the API with no Authorization header).
+    # Set to require `Authorization: Bearer <token>` on every /api/v1/*
+    # route. See DEF.md § Phase 14.
+    api_auth_token: str = ""
+    rate_limit_general_per_minute: int = 300
+    rate_limit_strict_per_minute: int = 30
+    max_request_body_bytes: int = 10_000_000
     # Both hostnames for the same dev server: browsers treat localhost and
     # 127.0.0.1 as distinct origins for CORS purposes, and which one a
     # given browser/OS resolves "localhost" to isn't guaranteed (see the

@@ -14,3 +14,11 @@ class InvalidQueryParameterError(Exception):
     def __init__(self, message: str):
         self.message = message
         super().__init__(message)
+
+
+class UnauthorizedError(Exception):
+    """Raised by app.api.deps.require_auth. See DEF.md § Phase 14."""
+
+    def __init__(self, message: str = "Missing or invalid API token"):
+        self.message = message
+        super().__init__(message)

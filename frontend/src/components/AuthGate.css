@@ -1,0 +1,68 @@
+.auth-gate-checking {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100vh;
+  color: var(--color-text-dim);
+}
+
+.auth-gate {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100vh;
+  background: var(--color-bg);
+}
+
+.auth-gate-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  width: 100%;
+  max-width: 320px;
+  padding: 2rem;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+}
+
+.auth-gate-form h1 {
+  margin: 0;
+  font-size: 1.25rem;
+  color: var(--color-text);
+}
+
+.auth-gate-form p {
+  margin: 0 0 0.5rem;
+  color: var(--color-text-dim);
+  font-size: 0.9rem;
+}
+
+.auth-gate-form input {
+  padding: 0.5rem 0.75rem;
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  color: var(--color-text);
+  font-size: 0.95rem;
+}
+
+.auth-gate-form button {
+  padding: 0.5rem 0.75rem;
+  background: var(--color-green);
+  border: none;
+  border-radius: 4px;
+  color: var(--color-bg);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.auth-gate-form button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.auth-gate-error {
+  color: var(--color-red);
+  font-size: 0.85rem;
+}

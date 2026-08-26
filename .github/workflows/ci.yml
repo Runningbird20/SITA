@@ -25,6 +25,25 @@ jobs:
         working-directory: backend
         run: uv run ruff format --check .
 
+  backend-dependency-scan:
+    name: Backend / dependency scan (pip-audit)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+        with:
+          version: "latest"
+      - name: Install dependencies
+        working-directory: backend
+        run: uv sync --frozen
+      # Blocking, not continue-on-error: DEF.md § Phase 14 — verified
+      # zero known vulnerabilities against this project's actual
+      # dependency set before wiring this in, so blocking costs nothing
+      # today and catches the first real one at merge time, not after.
+      - name: pip-audit
+        working-directory: backend
+        run: uv run pip-audit
+
   backend-test:
     name: Backend / test (SQLite, coverage)
     runs-on: ubuntu-latest
@@ -146,6 +165,15 @@ jobs:
       - name: Unit/component tests
         working-directory: frontend
         run: npm run test
+      # Blocking on high/critical only, unlike backend's fully-blocking
+      # pip-audit — DEF.md § Phase 14: npm's ecosystem routinely carries
+      # low/moderate advisories in dev-only transitive tooling (build
+      # tools, not shipped code) that aren't realistically fixable on this
+      # project's own timeline; gating on high+ keeps the signal real
+      # without chasing noise outside this project's control.
+      - name: npm audit
+        working-directory: frontend
+        run: npm audit --audit-level=high
       - name: Build
         working-directory: frontend
         run: npm run build

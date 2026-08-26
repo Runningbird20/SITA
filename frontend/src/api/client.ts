@@ -9,6 +9,38 @@ export interface HealthzResponse {
   llm: "ok" | "unavailable" | "not_configured";
 }
 
+const AUTH_TOKEN_STORAGE_KEY = "sita_api_token";
+
+/** Per-browser only (see AuthGate.tsx) — this is a convenience for the
+ * single local operator this dashboard is built for, not multi-user
+ * credential storage. Wrapped in try/catch: localStorage can throw in a
+ * private window or when site data is blocked. See DEF.md § Phase 14.
+ */
+export function getAuthToken(): string | null {
+  try {
+    return localStorage.getItem(AUTH_TOKEN_STORAGE_KEY);
+  } catch {
+    return null;
+  }
+}
+
+export function setAuthToken(token: string): void {
+  try {
+    localStorage.setItem(AUTH_TOKEN_STORAGE_KEY, token);
+  } catch {
+    // Nothing to fall back to — the request will just go out unauthenticated
+    // and the backend will 401 it, which AuthGate already handles.
+  }
+}
+
+export function clearAuthToken(): void {
+  try {
+    localStorage.removeItem(AUTH_TOKEN_STORAGE_KEY);
+  } catch {
+    // See getAuthToken.
+  }
+}
+
 /** Thrown by apiFetch for any non-2xx response. Carries the structured
  * {"error": {code, message, details}} envelope every Phase 9 endpoint
  * guarantees, when the response body actually has one.
@@ -41,7 +73,12 @@ async function fetchJson<T>(path: string, signal: AbortSignal): Promise<T> {
  * ApiError so pages can show a real message instead of a bare status code.
  */
 export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${API_BASE_URL}${path}`, init);
+  const token = getAuthToken();
+  const headers = new Headers(init?.headers);
+  if (token) {
+    headers.set("Authorization", `Bearer ${token}`);
+  }
+  const response = await fetch(`${API_BASE_URL}${path}`, { ...init, headers });
   if (!response.ok) {
     let code: string | null = null;
     let message = `${path} returned ${response.status}`;
