@@ -331,19 +331,19 @@ SITA/
 
 **Tasks**
 
-- [ ] Unit tests for normalization, IOC extraction, detection rules, correlation logic (largely produced incrementally in earlier phases — this phase closes gaps and raises coverage)
-- [ ] Integration tests exercising the full pipeline (ingest → normalize → detect → extract IOCs → correlate → triage) against synthetic datasets
-- [ ] API tests for every resource and error path
-- [ ] Database tests (migrations apply cleanly on both Postgres and SQLite; constraints enforced)
-- [ ] Detection rule tests with labeled true/false-positive fixtures (already started in Phase 3 — consolidate here)
-- [ ] IOC extraction accuracy tests (already started in Phase 4 — consolidate here)
-- [ ] Incident correlation accuracy tests (already started in Phase 5 — consolidate here)
-- [ ] LLM response validation tests: valid structured output, malformed output, timeout, provider failure — all via `MockProvider`
-- [ ] Failure-case tests across the stack (bad input, DB unavailable, LLM unavailable) confirming graceful degradation, not crashes
-- [ ] `[HIGH VALUE]` Track and report test coverage in CI; set a minimum threshold
-- [ ] Create reusable synthetic fixtures shared across unit/integration/API tests (avoid duplicated ad-hoc data)
+- [x] Unit tests for normalization, IOC extraction, detection rules, correlation logic (largely produced incrementally in earlier phases — this phase closes gaps and raises coverage) — measured coverage first (98% at phase start), closed the specific gaps it found (IOC extractor false-positive/malformed branches, correlation scoring/title/host-extraction branches); see [DEF.md § Phase 11](Documentation/DEF.md#phase-11-testing)
+- [x] Integration tests exercising the full pipeline (ingest → normalize → detect → extract IOCs → correlate → triage) against synthetic datasets — `backend/tests/integration/test_full_pipeline_against_datasets.py`, the first test to run the complete chain (prior dataset tests stopped at correlation)
+- [x] API tests for every resource and error path — closed several filters/branches that were documented but never actually called by a passing test (`Alert.status`, `SecurityEvent.since`/`until`, `IOC.validation_status`, `Recommendation.alert_id`/`source`, `AnalysisResult`'s `alert_id` scope, `GET /alerts/{id}/mitre-techniques`'s own 404)
+- [x] Database tests (migrations apply cleanly on both Postgres and SQLite; constraints enforced) — migrations already CI-verified on both (Phase 0); constraints already thoroughly tested (Phase 1's `test_models.py`) and now also verified for real against live Postgres via the new dual-dialect fixture (see the `[[postgres-vs-sqlite]]` resolution below)
+- [x] Detection rule tests with labeled true/false-positive fixtures (already started in Phase 3 — consolidate here) — consolidated the one real duplication found (`brute_force_events` fixture, previously copied across 3 files)
+- [x] IOC extraction accuracy tests (already started in Phase 4 — consolidate here) — every extractor now matches `TestIPv4`'s full pattern (public match, filtered match, dedup, malformed rejection); `ipv6.py` went from 79% to 100%
+- [x] Incident correlation accuracy tests (already started in Phase 5 — consolidate here) — closed the "alert before incident window" and "no activity window yet" scoring branches, and the entity-link-vs-IOC title-generation fallback
+- [x] LLM response validation tests: valid structured output, malformed output, timeout, provider failure — all via `MockProvider` — already comprehensive since Phase 6/7; this phase added the pipeline-level (not just provider-level) failure-injection test, see below
+- [x] Failure-case tests across the stack (bad input, DB unavailable, LLM unavailable) confirming graceful degradation, not crashes — bad input already covered (Phase 2/9); DB unavailable closed via `test_health_api.py` (the one line of `app/api/health.py` that had never run under test); LLM unavailable closed via `TestLLMUnavailableDegradesGracefully` in `test_triage_pipeline.py`, proving the incident's deterministic data is untouched when the LLM is down, not just that `generate()` doesn't raise
+- [x] `[HIGH VALUE]` Track and report test coverage in CI; set a minimum threshold — `--cov-fail-under=95` (actual: 99.06%) plus a GitHub Actions step-summary table and an uploaded XML artifact, in `.github/workflows/ci.yml`'s `backend-test` job
+- [x] Create reusable synthetic fixtures shared across unit/integration/API tests (avoid duplicated ad-hoc data) — `brute_force_events`/`BRUTE_FORCE_NOW` in `backend/tests/conftest.py`; Phase 9's `seed_full_incident()` was already the API-layer equivalent
 
-**Definition of Done:** CI runs the full test suite (unit + integration + API + DB) on every PR with a published coverage number; all failure-injection tests pass (system degrades gracefully rather than crashing).
+**Definition of Done:** CI runs the full test suite (unit + integration + API + DB) on every PR with a published coverage number; all failure-injection tests pass (system degrades gracefully rather than crashing). Confirmed — see [DEF.md § Phase 11 Status](Documentation/DEF.md#phase-11-status-implemented) and [PHASE-11.md](Documentation/PHASE-11.md). One thing beyond the original DoD: the suite now runs against both SQLite and a real Postgres instance on every CI run (`[[postgres-vs-sqlite]]`, resolved below), not just SQLite.
 
 ---
 
@@ -438,7 +438,7 @@ SITA/
 
 These need explicit decisions before or during the relevant phase — don't let them default silently.
 
-- **`[[postgres-vs-sqlite]]` PostgreSQL vs SQLite for local development.** Plan is Postgres as the "real" target (via Compose) with SQLite supported for fast local/test runs through the SQLAlchemy abstraction. Decide: should CI run tests against both, or just SQLite for speed with a periodic/optional Postgres run?
+- **`[[postgres-vs-sqlite]]` PostgreSQL vs SQLite for local development — resolved (Phase 11).** Both, every CI run, not periodic/optional: SQLite stays the primary, fast gate (`backend-test`, coverage-enforced); a second `backend-test-postgres` job runs the same test suite against a real ephemeral Postgres container via a `TEST_POSTGRES_URL`-gated fixture (`tests/conftest.py`), each test isolated in a rolled-back transaction. Chosen over "periodic/optional" because SQLite has already let a real bug through once — Phase 7's over-length `prompt_version` — that only a live Postgres run caught; making it optional would make that class of bug optional to catch, too. See [DEF.md § Phase 11](Documentation/DEF.md#phase-11-testing).
 - **`[[recommended-local-model]]` Recommended local model.** Needs a concrete choice (e.g., a Llama 3.x or Qwen2.5 instruct variant in the 7–8B range) balancing: runs on typical dev hardware, supports structured/JSON output well, reasonable latency for demo purposes. Should be pinned in `.env.example` with a documented fallback smaller model for constrained hardware.
 - **Orchestration: hand-rolled vs LangChain/LangGraph.** Leaning toward implementing the `LLMProvider` abstraction and triage pipeline ourselves — the project brief explicitly favors this, and it's a stronger engineering signal than wrapping a framework. Revisit only if a specific need (e.g., complex multi-step agent loops) can't be reasonably hand-rolled.
 - **`[[event-schema-design]]` Event schema design specifics.** The high-level `SecurityEvent` shape is sketched in Phase 1/2, but exact field-level design (how much source-specific detail lives in a `raw` JSON blob vs. promoted normalized columns) needs to be finalized once real sample data from all 5 source types is in hand.

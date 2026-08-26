@@ -32,6 +32,16 @@ class TestListAndGetIocs:
         response = test_client.get("/api/v1/iocs", params={"min_confidence": 0.5})
         assert response.json()["total"] == 1
 
+    def test_filter_by_validation_status(self, client):
+        test_client, session_factory = client
+        seed_full_incident(session_factory)
+
+        response = test_client.get("/api/v1/iocs", params={"validation_status": "invalid"})
+        assert response.json()["total"] == 0
+
+        response = test_client.get("/api/v1/iocs", params={"validation_status": "valid"})
+        assert response.json()["total"] == 1
+
     def test_search_by_value_substring(self, client):
         test_client, session_factory = client
         seed_full_incident(session_factory)

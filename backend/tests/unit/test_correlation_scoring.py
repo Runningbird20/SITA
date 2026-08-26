@@ -57,6 +57,27 @@ class TestTimeScore:
         breakdown = score_alert_against_incident(alert, incident, CONFIG)
         assert breakdown.time_score == 0.0
 
+    def test_alert_before_incident_window_still_decays_by_gap(self):
+        # The alert happened *before* the incident's activity window, not
+        # after — the other branch of the gap calculation.
+        alert = _alert_sig(
+            first_event_at=NOW - timedelta(minutes=15), last_event_at=NOW - timedelta(minutes=15)
+        )
+        incident = _incident_sig(first_activity_at=NOW, last_activity_at=NOW + timedelta(minutes=5))
+        breakdown = score_alert_against_incident(alert, incident, CONFIG)
+        assert 0 < breakdown.time_score < CONFIG.time_weight
+
+    def test_incident_with_no_activity_window_yet_scores_full_time_weight(self):
+        # A brand-new IncidentSignature before any alert has been merged
+        # into it — first_activity_at/last_activity_at are still None.
+        # _time_gap_seconds treats "no window yet" as a zero gap (nothing
+        # to conflict with), so this scores the *full* time weight, not
+        # zero — confirmed here rather than assumed.
+        alert = _alert_sig(first_event_at=NOW, last_event_at=NOW)
+        incident = _incident_sig(first_activity_at=None, last_activity_at=None)
+        breakdown = score_alert_against_incident(alert, incident, CONFIG)
+        assert breakdown.time_score == CONFIG.time_weight
+
 
 class TestIOCScore:
     def test_shared_iocs_at_saturation_score_full_weight(self):

@@ -39,10 +39,25 @@ class TestIPv6:
     def test_scan_filters_loopback(self):
         assert ipv6.scan("bound to ::1") == []
 
+    def test_scan_filters_private_addresses(self):
+        assert ipv6.scan("connected fc00::1234 internally") == []
+
+    def test_scan_deduplicates_repeated_matches(self):
+        found = ipv6.scan("2606:4700:4700::1111 then again 2606:4700:4700::1111")
+        assert len(found) == 1
+
+    def test_scan_ignores_a_regex_match_ipaddress_rejects(self):
+        # "1::2::3" matches the (deliberately permissive) regex but has two
+        # "::" compressions, which ipaddress.IPv6Address correctly rejects.
+        assert ipv6.scan("garbled address 1::2::3 seen") == []
+
     def test_from_field_accepts_documentation_range(self):
         candidate = ipv6.from_field("2001:db8:1234:5678::10")
         assert candidate is not None
         assert candidate.confidence == 1.0
+
+    def test_from_field_rejects_malformed_value(self):
+        assert ipv6.from_field("not-an-ipv6") is None
 
 
 class TestDomain:
@@ -63,6 +78,12 @@ class TestDomain:
     def test_scan_does_not_match_bare_ip_addresses(self):
         assert domain.scan("connection to 185.220.101.5 observed") == []
 
+    def test_scan_deduplicates_repeated_matches(self):
+        found = domain.scan(
+            "beaconing to malicious-redirect.example, then malicious-redirect.example again"
+        )
+        assert len(found) == 1
+
     def test_from_field_valid_domain(self):
         candidate = domain.from_field("cdn-update-service.example")
         assert candidate is not None
@@ -73,6 +94,9 @@ class TestDomain:
         candidate = domain.from_field("intranet.corp.internal")
         assert candidate is not None
         assert candidate.validation_status == ValidationStatus.INVALID
+
+    def test_from_field_rejects_malformed_value(self):
+        assert domain.from_field("not a domain!!") is None
 
 
 class TestURL:
@@ -89,6 +113,13 @@ class TestURL:
 
     def test_scan_ignores_plain_text(self):
         assert url.scan("no links here, just words") == []
+
+    def test_scan_deduplicates_repeated_matches(self):
+        found = url.scan("see http://example.com/path and again http://example.com/path")
+        assert len(found) == 1
+
+    def test_scan_ignores_a_url_with_no_netloc(self):
+        assert url.scan("malformed reference http:///just-a-path in the log") == []
 
 
 class TestFileHash:
@@ -107,6 +138,11 @@ class TestFileHash:
         found = file_hash.scan("E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855")
         assert found[0].value == found[0].value.lower()
 
+    def test_scan_deduplicates_repeated_matches(self):
+        sha1 = "da39a3ee5e6b4b0d3255bfef95601890afd80709"
+        found = file_hash.scan(f"{sha1} appears again as {sha1}")
+        assert len(found) == 1
+
 
 class TestEmail:
     def test_scan_finds_email(self):
@@ -116,6 +152,10 @@ class TestEmail:
 
     def test_scan_ignores_text_without_at_sign(self):
         assert email.scan("no email here") == []
+
+    def test_scan_deduplicates_repeated_matches(self):
+        found = email.scan("victim@example.com reported it, victim@example.com confirmed")
+        assert len(found) == 1
 
 
 class TestUsername:

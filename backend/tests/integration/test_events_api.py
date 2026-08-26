@@ -108,6 +108,20 @@ class TestListAndGetEvents:
         assert body["total"] == 1
         assert body["items"][0]["source_type"] == "auth"
 
+    def test_filter_by_since_and_until(self, client):
+        test_client, _ = client
+        self._seed(test_client)
+
+        response = test_client.get("/api/v1/events", params={"since": "2026-01-15T05:00:00Z"})
+        body = response.json()
+        assert body["total"] == 1
+        assert body["items"][0]["source_type"] == "web"
+
+        response = test_client.get("/api/v1/events", params={"until": "2026-01-15T05:00:00Z"})
+        body = response.json()
+        assert body["total"] == 1
+        assert body["items"][0]["source_type"] == "auth"
+
     def test_pagination_limit(self, client):
         test_client, _ = client
         self._seed(test_client)

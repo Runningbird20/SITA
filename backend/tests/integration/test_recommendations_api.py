@@ -33,6 +33,24 @@ class TestListAndGetRecommendations:
         )
         assert response.json()["total"] == 1
 
+    def test_filter_by_alert_id(self, client):
+        test_client, session_factory = client
+        ids = seed_full_incident(session_factory)
+
+        # The fixture's recommendation is incident-scoped, not alert-scoped.
+        response = test_client.get("/api/v1/recommendations", params={"alert_id": ids["alert_id"]})
+        assert response.json()["total"] == 0
+
+    def test_filter_by_source(self, client):
+        test_client, session_factory = client
+        seed_full_incident(session_factory)
+
+        response = test_client.get("/api/v1/recommendations", params={"source": "rule_based"})
+        assert response.json()["total"] == 0
+
+        response = test_client.get("/api/v1/recommendations", params={"source": "llm"})
+        assert response.json()["total"] == 1
+
     def test_get_by_id(self, client):
         test_client, session_factory = client
         ids = seed_full_incident(session_factory)

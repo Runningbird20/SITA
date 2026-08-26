@@ -31,6 +31,16 @@ class TestListAndGetAlerts:
         response = test_client.get("/api/v1/alerts", params={"rule_key": "nonexistent_rule"})
         assert response.json()["total"] == 0
 
+    def test_filter_by_status(self, client):
+        test_client, session_factory = client
+        seed_full_incident(session_factory)
+
+        response = test_client.get("/api/v1/alerts", params={"status": "new"})
+        assert response.json()["total"] == 1
+
+        response = test_client.get("/api/v1/alerts", params={"status": "resolved"})
+        assert response.json()["total"] == 0
+
     def test_filter_by_incident_id(self, client):
         test_client, session_factory = client
         ids = seed_full_incident(session_factory)
@@ -62,3 +72,11 @@ class TestListAndGetAlerts:
         assert len(mappings) == 1
         assert mappings[0]["source"] == "rule"
         assert mappings[0]["technique"]["technique_id"] == "T1110.001"
+
+    def test_mitre_techniques_missing_alert_returns_404(self, client):
+        test_client, _ = client
+        response = test_client.get(
+            "/api/v1/alerts/00000000-0000-0000-0000-000000000000/mitre-techniques"
+        )
+        assert response.status_code == 404
+        assert response.json()["error"]["code"] == "not_found"
