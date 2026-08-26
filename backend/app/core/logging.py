@@ -4,6 +4,7 @@ import sys
 from pythonjsonlogger.json import JsonFormatter
 
 from app.core.config import get_settings
+from app.core.request_context import RequestIdFilter
 
 _CONFIGURED = False
 
@@ -29,6 +30,7 @@ def configure_logging() -> None:
         formatter = logging.Formatter("%(asctime)s | %(levelname)-8s | %(name)s | %(message)s")
 
     handler.setFormatter(formatter)
+    handler.addFilter(RequestIdFilter())
 
     root = logging.getLogger()
     root.handlers = [handler]

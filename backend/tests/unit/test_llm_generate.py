@@ -1,5 +1,6 @@
 from pydantic import BaseModel
 
+from app.core.metrics import llm_call_duration_seconds, llm_calls_total
 from app.llm.exceptions import LLMProviderError, LLMTimeoutError
 from app.llm.mock_provider import MockProvider
 from app.llm.types import LLMConfig, LLMRequest, RawCompletion
@@ -107,3 +108,30 @@ class TestResponseMetadata:
             # Should not raise — the whole point of generate()'s contract.
             response = provider.generate(_request(), config)
             assert response is not None
+
+
+class TestLLMMetrics:
+    def test_successful_call_increments_calls_and_records_duration(self):
+        labels = {"provider": "mock", "model": "test-metrics", "task_type": "incident_summary"}
+        calls_before = llm_calls_total.labels(**labels, status="valid")._value.get()
+        duration_before = llm_call_duration_seconds.labels(**labels)._sum.get()
+
+        provider = MockProvider(responses=RawCompletion(text='{"summary": "ok"}'))
+        config = LLMConfig(model="test-metrics", retry_backoff_seconds=0)
+        provider.generate(_request(), config)
+
+        assert llm_calls_total.labels(**labels, status="valid")._value.get() == calls_before + 1
+        assert llm_call_duration_seconds.labels(**labels)._sum.get() >= duration_before
+
+    def test_each_retry_attempt_is_counted_separately(self):
+        labels = {"provider": "mock", "model": "test-retries", "task_type": "incident_summary"}
+        invalid_before = llm_calls_total.labels(**labels, status="invalid")._value.get()
+
+        provider = MockProvider(responses=RawCompletion(text="always bad"))
+        config = LLMConfig(model="test-retries", max_retries=2, retry_backoff_seconds=0)
+        provider.generate(_request(), config)
+
+        # 3 attempts total (1 + 2 retries), all invalid.
+        assert llm_calls_total.labels(**labels, status="invalid")._value.get() == (
+            invalid_before + 3
+        )

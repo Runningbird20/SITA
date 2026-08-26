@@ -11,6 +11,7 @@ def test_healthz_returns_ok() -> None:
     body = response.json()
     assert body["status"] in {"ok", "degraded"}
     assert "database" in body
+    assert "llm" in body
 
 
 def test_root_redirects_to_docs() -> None:

@@ -2,6 +2,7 @@ import uuid
 
 from sqlalchemy import select
 
+from app.core.metrics import events_ingested_total, ingestion_errors_total
 from app.ingestion.service import ingest_records
 from app.models.enums import SourceType
 from app.models.event import SecurityEvent
@@ -85,3 +86,29 @@ class TestIngestRecords:
 
         db_session.commit()
         assert db_session.scalars(select(SecurityEvent)).all() == []
+
+
+class TestIngestionMetrics:
+    def test_accepted_and_rejected_counts_are_recorded(self, db_session):
+        events_before = events_ingested_total.labels(source_type="endpoint")._value.get()
+        errors_before = ingestion_errors_total.labels(source_type="endpoint")._value.get()
+
+        records = [
+            {
+                "timestamp": "2026-01-15T03:10:00Z",
+                "host": "ws-01.internal",
+                "process_name": "cmd.exe",
+                "command_line": '"cmd.exe"',
+                "pid": 100,
+                "user": "svc-01",
+            },
+            {"timestamp": "not-a-timestamp"},
+        ]
+        ingest_records(db=db_session, source_type=SourceType.ENDPOINT, raw_records=records)
+
+        assert (
+            events_ingested_total.labels(source_type="endpoint")._value.get() == events_before + 1
+        )
+        assert (
+            ingestion_errors_total.labels(source_type="endpoint")._value.get() == errors_before + 1
+        )

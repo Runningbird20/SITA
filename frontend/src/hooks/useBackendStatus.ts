@@ -1,5 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
-import { fetchHealthz, fetchOpenApiPaths, type HealthzResponse } from "../api/client";
+import {
+  fetchHealthz,
+  fetchMetricsAvailable,
+  fetchOpenApiPaths,
+  type HealthzResponse,
+} from "../api/client";
 
 export interface BackendStatus {
   /** True once the first check has resolved (success or failure). */
@@ -8,6 +13,9 @@ export interface BackendStatus {
   reachable: boolean;
   healthz: HealthzResponse | null;
   openApiPaths: Set<string> | null;
+  /** Whether GET /metrics returned real Prometheus output. Never causes
+   * the whole status check to fail — see fetchMetricsAvailable. */
+  metricsAvailable: boolean;
   error: string | null;
   checkedAt: Date | null;
   refresh: () => void;
@@ -21,6 +29,7 @@ export function useBackendStatus(pollIntervalMs = 15000): BackendStatus {
     reachable: false,
     healthz: null,
     openApiPaths: null,
+    metricsAvailable: false,
     error: null,
     checkedAt: null,
   });
@@ -29,13 +38,18 @@ export function useBackendStatus(pollIntervalMs = 15000): BackendStatus {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
 
-    Promise.all([fetchHealthz(controller.signal), fetchOpenApiPaths(controller.signal)])
-      .then(([healthz, openApiPaths]) => {
+    Promise.all([
+      fetchHealthz(controller.signal),
+      fetchOpenApiPaths(controller.signal),
+      fetchMetricsAvailable(controller.signal),
+    ])
+      .then(([healthz, openApiPaths, metricsAvailable]) => {
         setState({
           loading: false,
           reachable: true,
           healthz,
           openApiPaths,
+          metricsAvailable,
           error: null,
           checkedAt: new Date(),
         });
@@ -46,6 +60,7 @@ export function useBackendStatus(pollIntervalMs = 15000): BackendStatus {
           reachable: false,
           healthz: null,
           openApiPaths: null,
+          metricsAvailable: false,
           error: err instanceof Error ? err.message : "Unknown error",
           checkedAt: new Date(),
         });

@@ -11,6 +11,7 @@ import time
 from abc import ABC, abstractmethod
 from typing import ClassVar
 
+from app.core.metrics import llm_call_duration_seconds, llm_calls_total
 from app.llm.exceptions import LLMProviderError, LLMTimeoutError
 from app.llm.types import LLMConfig, LLMRequest, LLMResponse, RawCompletion
 from app.llm.validation import validate_structured_output
@@ -51,8 +52,18 @@ class LLMProvider(ABC):
             try:
                 completion: RawCompletion = self._complete(request.prompt, config)
             except LLMTimeoutError as exc:
-                latency_ms = int((time.monotonic() - start) * 1000)
+                elapsed = time.monotonic() - start
+                latency_ms = int(elapsed * 1000)
                 last_status, last_error = AnalysisValidationStatus.TIMEOUT, str(exc)
+                llm_calls_total.labels(
+                    provider=self.name,
+                    model=config.model,
+                    task_type=request.task_type.value,
+                    status=last_status.value,
+                ).inc()
+                llm_call_duration_seconds.labels(
+                    provider=self.name, model=config.model, task_type=request.task_type.value
+                ).observe(elapsed)
                 logger.warning(
                     "LLM call timed out",
                     extra={
@@ -68,8 +79,18 @@ class LLMProvider(ABC):
                     continue
                 return self._failure_response(request, config, last_status, last_error, latency_ms)
             except LLMProviderError as exc:
-                latency_ms = int((time.monotonic() - start) * 1000)
+                elapsed = time.monotonic() - start
+                latency_ms = int(elapsed * 1000)
                 last_status, last_error = AnalysisValidationStatus.PROVIDER_ERROR, str(exc)
+                llm_calls_total.labels(
+                    provider=self.name,
+                    model=config.model,
+                    task_type=request.task_type.value,
+                    status=last_status.value,
+                ).inc()
+                llm_call_duration_seconds.labels(
+                    provider=self.name, model=config.model, task_type=request.task_type.value
+                ).observe(elapsed)
                 logger.warning(
                     "LLM provider call failed",
                     extra={
@@ -85,12 +106,23 @@ class LLMProvider(ABC):
                     continue
                 return self._failure_response(request, config, last_status, last_error, latency_ms)
 
-            latency_ms = int((time.monotonic() - start) * 1000)
+            elapsed = time.monotonic() - start
+            latency_ms = int(elapsed * 1000)
             last_raw_text = completion.text
             last_tokens = (completion.prompt_tokens, completion.completion_tokens)
             parsed, status, error = validate_structured_output(
                 completion.text, request.response_schema
             )
+
+            llm_calls_total.labels(
+                provider=self.name,
+                model=config.model,
+                task_type=request.task_type.value,
+                status=status.value,
+            ).inc()
+            llm_call_duration_seconds.labels(
+                provider=self.name, model=config.model, task_type=request.task_type.value
+            ).observe(elapsed)
 
             logger.info(
                 "LLM call completed",

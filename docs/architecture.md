@@ -121,6 +121,51 @@ rather than duplicated here. This phase has no REST endpoint and no actual
 triage prompts — it proves the machinery works against an illustrative
 schema; Phase 7 writes the real prompts and persists `AnalysisResult` rows.
 
+## Observability
+
+Every layer of the pipeline (`app/ingestion`, `app/detection`,
+`app/correlation`, `app/llm`) and the API layer (`app/main.py`) emit
+structured JSON logs via one shared configuration
+(`backend/app/core/logging.py`) — there is no per-module logging setup.
+Three cross-cutting mechanisms tie it together:
+
+- **Request IDs**: a middleware in `app/main.py` stamps every HTTP request
+  with an ID (honoring an inbound `X-Request-ID` header if the caller
+  already has one, generating a UUID otherwise), echoes it back as a
+  response header, and makes it available to every logger for the
+  duration of that request via a `ContextVar`
+  (`app/core/request_context.py`). Since `POST /api/v1/pipeline/run` runs
+  the full deterministic-then-AI pipeline synchronously inside the request,
+  every pipeline log line it triggers carries the same ID as the HTTP
+  access log line — one ID ties a demo run's ingestion, detection,
+  correlation, and triage log lines together end-to-end. CLI-triggered
+  runs (batch ingestion, the evaluation/benchmark harnesses) have no
+  request ID, correctly — they weren't triggered by a request.
+- **Metrics**: `app/core/metrics.py` declares an in-process
+  [Prometheus](https://prometheus.io/) registry — counters for events
+  ingested, alerts created, incidents created/updated, LLM calls, and HTTP
+  requests, plus histograms for detection-rule duration, LLM call
+  duration, and HTTP request duration. Scrapeable at `GET /metrics` in
+  standard Prometheus text exposition format.
+- **Error tracking**: a catch-all exception handler in `app/main.py`
+  guarantees any unhandled exception produces the same structured error
+  envelope every other API error does, with a full traceback logged
+  (request-ID-tagged) rather than surfacing FastAPI's default,
+  unstructured 500.
+
+`GET /healthz` reports both database connectivity and (only when
+`LLM_PROVIDER=ollama`) LLM reachability, via a short-timeout ping — never
+a real generation call, and never attempted at all for the default Mock
+provider, since there's nothing to reach and this endpoint is polled
+frequently.
+
+Full metric names/labels, the exact request-ID propagation contract, and
+what was and wasn't built (a Prometheus text endpoint yes, a bundled
+Grafana dashboard/compose profile no — the latter is genuinely additional
+shipped infrastructure, deliberately out of scope) are defined in
+[DEF.md § Phase 13](../Documentation/DEF.md#phase-13-observability) rather
+than duplicated here.
+
 ## Data Layer
 
 SQLAlchemy models sit behind a single `DATABASE_URL`; the dialect (Postgres in

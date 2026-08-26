@@ -84,14 +84,15 @@ export function StatusPage() {
 
       <footer className="dashboard-footer">
         <p>
-          Phases 0, 1, 2, 3, 4, 5, 7, 8, and 9 are checked live against the running backend (
-          <code>/healthz</code>, <code>/openapi.json</code>) — green means "Working," verified just
-          now. Phases 6 and 10 have no REST resource of their own to check (the LLM provider
-          abstraction and this dashboard itself aren't domain objects Phase 9 exposes) — yellow
-          "Implemented" is asserted from each one's own test suite and report, not guessed. Red
-          means a live check ran and failed. Phases 11–15 have no built surface at all yet, shown
-          gray rather than guessed at. This page is now a standing diagnostic — the real product
-          lives behind the nav.
+          Phases 0, 1, 2, 3, 4, 5, 7, 8, 9, and 13 are checked live against the running backend (
+          <code>/healthz</code>, <code>/openapi.json</code>, <code>/metrics</code>) — green means
+          "Working," verified just now. Phases 6, 10, 11, and 12 have no REST resource of their own
+          to check (the LLM provider abstraction, this dashboard itself, the test suite, and the
+          evaluation/benchmark CLIs aren't domain objects Phase 9 exposes) — yellow "Implemented" is
+          asserted from each one's own test suite and report, not guessed. Red means a live check
+          ran and failed. Phases 14 and 15 have no built surface at all yet, shown gray rather than
+          guessed at. This page is now a standing diagnostic — the real product lives behind the
+          nav.
         </p>
       </footer>
     </div>

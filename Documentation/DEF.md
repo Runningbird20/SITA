@@ -1566,3 +1566,64 @@ A real run (1500 events, 3 sources, 50 API requests/endpoint) is reported in `do
 **One real, unresolved finding, documented rather than silently worked around**: ingesting only the eval dataset's `multi_stage` scenario files in isolation produces a *different* (incorrect, 2-incident) correlation result than ingesting the full eval dataset (1 incident — matching ground truth, and what the harness test above verifies). The AI-grounding script works around this by using the full-dataset ingest path rather than the isolated one. Root cause not yet chased down (order- or context-sensitivity in correlation's chronological single-pass grouping, or in how alerts from other cases' events interleave) — flagged here as a real gap rather than hidden, worth investigating in a later phase rather than blocking this one.
 
 See [Documentation/PHASE-12.md](PHASE-12.md) for the full narrative and `TODO.md` Phase 12 for the itemized checklist.
+
+---
+
+# Phase 13: Observability
+
+## Scope
+
+Phase 0 already established structured JSON logging (`app/core/logging.py`, `configure_logging()`) but most pipeline layers never actually used it — `ingestion/service.py`, `detection/pipeline.py`, and `correlation/pipeline.py` had no logging at all before this phase; only `main.py`, `app/llm/base.py`, and `app/api/health.py` did. This phase closes that gap, adds request-ID propagation, adds an in-process metrics registry with a scrapeable endpoint, adds a catch-all structured error handler, and extends the health check to (optionally) cover LLM reachability.
+
+## Request ID propagation
+
+`app/core/request_context.py`: a single `ContextVar[str | None]`, plus a `logging.Filter` (`RequestIdFilter`) that stamps every `LogRecord` with a `request_id` attribute — the contextvar's current value, or `None` when nothing set it (CLI invocations: batch ingestion, evaluation/benchmark harnesses, Alembic). The filter is attached once in `configure_logging()`, so every logger in the app gets `request_id` in its structured output for free, without every call site passing it explicitly.
+
+A middleware in `app/main.py` sets the contextvar per request: it honors an inbound `X-Request-ID` header if the caller already has one (so an upstream proxy/gateway's trace ID is preserved rather than overwritten), otherwise generates a `uuid4()`. It echoes the ID back as a response header and resets the contextvar when the request completes (via a `try`/`finally`, so it can't leak into an unrelated later request on the same worker thread).
+
+**"Propagated through async pipeline processing triggered by that request"**: `POST /api/v1/pipeline/run` (Phase 9) runs the full pipeline synchronously inside the request/response cycle — there is no background task queue in this project. That means the contextvar set by the middleware is already in scope for the entire pipeline run with no extra plumbing; every `run_detection`/`run_correlation`/`run_triage` log line emitted while handling that request carries the same `request_id` as the HTTP access log line, for free. If a genuinely async/background job queue is added in a later phase, the contextvar would need to be explicitly carried across that boundary (contextvars don't cross thread/process boundaries automatically) — noted here so that constraint isn't rediscovered by surprise later.
+
+## Metrics
+
+`app/core/metrics.py`: every metric is declared once, at import time, in one module — the same "one place, discoverable, no ad-hoc declarations elsewhere" precedent `app/core/config.py` already set for settings. Uses `prometheus_client` (a small, pure-Python, no-network-dependency library — consistent with the "no paid APIs, no required cloud dependency" principle; nothing here requires a running Prometheus server, it's just the text exposition format).
+
+| Metric | Type | Labels | Emitted from |
+|---|---|---|---|
+| `sita_events_ingested_total` | Counter | `source_type` | `ingestion/service.py::ingest_records` |
+| `sita_ingestion_errors_total` | Counter | `source_type` | `ingestion/service.py::ingest_records` |
+| `sita_alerts_created_total` | Counter | `rule_key` | `detection/pipeline.py::run_detection` |
+| `sita_detection_rule_duration_seconds` | Histogram | `rule_key` | `detection/pipeline.py::run_detection` |
+| `sita_incidents_created_total` | Counter | — | `correlation/pipeline.py::run_correlation` |
+| `sita_incidents_updated_total` | Counter | — | `correlation/pipeline.py::run_correlation` (an alert joining an existing incident) |
+| `sita_llm_calls_total` | Counter | `provider`, `model`, `task_type`, `status` | `llm/base.py::LLMProvider.generate` |
+| `sita_llm_call_duration_seconds` | Histogram | `provider`, `model`, `task_type` | `llm/base.py::LLMProvider.generate` |
+| `sita_http_requests_total` | Counter | `method`, `path_template`, `status_code` | request middleware, `app/main.py` |
+| `sita_http_request_duration_seconds` | Histogram | `method`, `path_template` | request middleware, `app/main.py` |
+
+`sita_llm_calls_total`'s `status` label is one per network attempt (matching the per-attempt logging `llm/base.py` already did before this phase), not one per logical task — a task that retries twice and then succeeds produces two `status="timeout"` (or similar) increments plus one `status="valid"` increment, which is the more useful shape for "success/failure rate" and "calls made" than collapsing retries into a single outcome.
+
+Exposed at `GET /metrics` (root-level, not under `/api/v1` — matching both Prometheus's own scrape convention and this project's existing precedent of `/healthz` being unprefixed) via `prometheus_client.generate_latest()`, registered in `app/api/metrics.py`.
+
+**In-memory, per-process — a stated limitation, not an oversight**: `prometheus_client`'s default registry lives in process memory. That's correct for this project's documented run mode (a single `uvicorn` process, no multi-worker deployment described anywhere in the quick-start), but would under-count in a genuinely multi-worker/multi-replica deployment without a push-gateway or a shared registry — out of scope here, and would only matter if Phase 15's deployment story grows beyond a single backend process.
+
+**`[STRETCH]` partially done, stated plainly**: TODO.md's stretch item bundles "expose metrics in Prometheus format" with "provide a simple Grafana dashboard/docker-compose profile." Only the first half is implemented — `/metrics` is real, standard Prometheus exposition format, scrapeable by any Prometheus instance as-is. A bundled Grafana dashboard JSON and a docker-compose profile for a metrics stack were deliberately not built: that's additional shipped infrastructure (a Prometheus + Grafana service pair, dashboard provisioning) beyond what "expose metrics" strictly requires, and no reviewer-facing artifact in this project currently depends on it existing.
+
+## Error tracking
+
+A catch-all `Exception` handler in `app/main.py` (added alongside the existing `NotFoundError`/`InvalidQueryParameterError`/`RequestValidationError` handlers) logs any otherwise-unhandled exception via `logger.exception(...)` — full traceback, plus method/path/request_id already present via the logging filter above — before returning the same structured error envelope shape the other handlers use (`{"error": {"code": "internal_error", "message": "...", "details": null}}`), rather than letting FastAPI's default unstructured 500 response through. This is the "enough context to debug without reproducing" bar TODO.md asks for: request ID ties the error log line back to the exact HTTP access log line and any pipeline log lines from the same request.
+
+## Health check
+
+`GET /healthz` (Phase 0/11) gains an `llm` field alongside the existing `database` one. When `settings.llm_provider == "ollama"`, it makes one short-timeout (2s) `GET {ollama_base_url}/api/tags` call and reports `"ok"` or `"unavailable"`; when the provider is `mock`, it reports `"not_configured"` and makes no network call at all — consistent with the endpoint's existing "kept dependency-light... polled frequently" design note, since there's nothing to reach for Mock and a network call would only add latency to a health check that's often polled on a tight interval. Overall `status` is `"degraded"` if either `database` or a configured `llm` check fails; `"ok"` otherwise.
+
+## Phase 13 Status: implemented
+
+New: `app/core/request_context.py` (the ContextVar + `RequestIdFilter`), `app/core/metrics.py` (the registry), `app/api/metrics.py` (`GET /metrics`). Modified: `app/core/logging.py` (attaches the filter), `app/main.py` (request-ID/metrics middleware, catch-all `Exception` handler, router registration), `app/api/health.py` (LLM reachability), `app/ingestion/service.py`, `app/detection/pipeline.py`, `app/correlation/pipeline.py`, `app/llm/base.py` (metric emission + the structured logging each of these lacked entirely before this phase).
+
+**One real bug, caught by running the server for real rather than trusting the tests alone**: the first version of the request-ID middleware reset the `ContextVar` in a `finally` attached only to the `call_next()` call, before the "request completed" log line and the metrics-recording code that followed it — so every completion log line was stamped `request_id: null` even though the request-start log line correctly showed the real ID. `pytest` alone didn't catch this (the original tests only checked the response header, which is set from a local variable and was never affected). Found by starting the dev server and reading its own JSON log output directly — the same "verify for real" discipline this project has applied in every prior phase. Fixed by moving `reset_request_id` to a `finally` wrapping the entire middleware body, and locked in with a regression test (`test_request_id_is_still_set_when_the_completion_log_line_is_emitted`) that reads the log record via `caplog` rather than only asserting on the HTTP response.
+
+Verified live against a real server process (not just the test suite): `/healthz` and `/metrics` over real HTTP; a real unhandled exception (an unmigrated throwaway database) producing a full traceback in the logs, correctly tagged with the triggering request's ID, while the client received the same clean structured 500 envelope every other API error uses; and a full real ingest → `POST /api/v1/pipeline/run` run against a migrated database, confirming `sita_alerts_created_total`, `sita_incidents_created_total`, and `sita_detection_rule_duration_seconds` all reflect real pipeline activity, and that the `detection run completed`/`correlation run completed` log lines emitted mid-request carry the same `request_id` as the HTTP access log lines around them.
+
+Backend suite after this phase: 363 passed, 1 skipped (the opportunistic live-Ollama test), 98% line coverage — `app/main.py`, `app/api/health.py`, `app/api/metrics.py`, `app/core/logging.py`, `app/core/metrics.py`, and `app/core/request_context.py` are all at 100%. `ruff check`/`ruff format --check` clean.
+
+See [Documentation/PHASE-13.md](PHASE-13.md) for the full narrative and `TODO.md` Phase 13 for the itemized checklist.

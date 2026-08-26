@@ -2,6 +2,7 @@ from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import select
 
+from app.core.metrics import alerts_created_total, detection_rule_duration_seconds
 from app.detection.pipeline import run_detection
 from app.models.alert import Alert
 from app.models.detection import Detection
@@ -67,3 +68,36 @@ class TestRunDetection:
         db_session.commit()
         assert report.alerts_created == 0
         assert all(count == 0 for count in report.alerts_by_rule.values())
+
+
+class TestDetectionMetrics:
+    def test_rule_firing_and_duration_are_recorded(self, db_session, make_event):
+        for i in range(10):
+            make_event(
+                SourceType.AUTH,
+                NOW + timedelta(seconds=i * 20),
+                {
+                    "event_result": "failure",
+                    "username": "admin",
+                    "source_ip": "198.51.100.1",
+                    "dest_host": "db01.internal",
+                    "auth_method": "password",
+                },
+            )
+        db_session.commit()
+
+        alerts_before = alerts_created_total.labels(rule_key="ssh_brute_force")._value.get()
+        duration_before = detection_rule_duration_seconds.labels(
+            rule_key="ssh_brute_force"
+        )._sum.get()
+
+        run_detection(db_session)
+        db_session.commit()
+
+        assert alerts_created_total.labels(rule_key="ssh_brute_force")._value.get() == (
+            alerts_before + 1
+        )
+        assert (
+            detection_rule_duration_seconds.labels(rule_key="ssh_brute_force")._sum.get()
+            >= duration_before
+        )

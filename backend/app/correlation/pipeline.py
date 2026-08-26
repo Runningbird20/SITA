@@ -12,12 +12,14 @@ Two passes:
    "since limits new work, not historical context" convention.
 """
 
+import logging
 from dataclasses import asdict
 from datetime import datetime, timedelta
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.metrics import incidents_created_total, incidents_updated_total
 from app.correlation.base import (
     AlertSignature,
     CorrelationConfig,
@@ -33,6 +35,8 @@ from app.models.enums import EntityType, IncidentStatus, Severity
 from app.models.event import SecurityEvent
 from app.models.incident import Incident
 from app.schemas.correlation_run import CorrelationRunReport
+
+logger = logging.getLogger(__name__)
 
 _SEVERITY_ORDER = [Severity.LOW, Severity.MEDIUM, Severity.HIGH, Severity.CRITICAL]
 
@@ -191,6 +195,23 @@ def run_correlation(db: Session, since: datetime | None = None) -> CorrelationRu
             incidents_joined += 1
 
     db.flush()
+
+    if incidents_created:
+        incidents_created_total.inc(incidents_created)
+    if incidents_joined:
+        incidents_updated_total.inc(incidents_joined)
+
+    logger.info(
+        "correlation run completed",
+        extra={
+            "since": since.isoformat() if since else None,
+            "alerts_processed": len(alerts),
+            "incidents_created": incidents_created,
+            "incidents_joined": incidents_joined,
+            "host_entities_created": host_entities_created,
+            "host_links_created": host_links_created,
+        },
+    )
 
     return CorrelationRunReport(
         since=since,

@@ -27,4 +27,4 @@ class TestHealthzDegradesWhenDatabaseIsUnavailable:
         test_client, _ = client
         response = test_client.get("/healthz")
         assert response.status_code == 200
-        assert response.json() == {"status": "ok", "database": "ok"}
+        assert response.json() == {"status": "ok", "database": "ok", "llm": "not_configured"}
