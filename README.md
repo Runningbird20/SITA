@@ -80,6 +80,17 @@ uv run ruff check .
 uv run ruff format .
 ```
 
+With coverage (CI enforces a 95% minimum; the suite is currently at 99%):
+
+```bash
+uv run pytest --cov=app --cov-report=term-missing
+```
+
+CI also runs the full suite against a real Postgres instance, not just
+SQLite — see [DEF.md § Phase 11](Documentation/DEF.md#phase-11-testing) for
+how that's done safely (opt-in only, never against a real database by
+accident).
+
 ### Loading synthetic security event data
 
 A collection of realistic synthetic events (benign and attack-pattern, per
@@ -152,14 +163,18 @@ over every domain object, a structured error envelope, auto-generated
 OpenAPI docs, and a pipeline-trigger endpoint for demos; also switches
 Phase 3/4/5/7/8's dashboard entries from static "Implemented" to
 live-checked "Working," a promise each of those phases' own docs made),
-and Phase 10 (frontend — a real SOC-style dashboard: overview, alert and
+Phase 10 (frontend — a real SOC-style dashboard: overview, alert and
 incident lists, an incident detail page with a visually distinct AI
 analysis panel, an IOC explorer, a detections page, and a MITRE technique
 library, all live against the Phase 9 API; the original build-status page
-moved to `/status` rather than being replaced). See
-[Documentation/](Documentation/) for the detailed report on each
+moved to `/status` rather than being replaced), and Phase 11 (testing — an
+audited, coverage-enforced suite: 338 backend tests at 99% line coverage
+with a 95% CI floor, run against both SQLite and a real Postgres instance
+on every CI run, plus failure-injection tests proving the system degrades
+gracefully — not crashes — when the database or the LLM is unavailable).
+See [Documentation/](Documentation/) for the detailed report on each
 completed phase, and [TODO.md](TODO.md) for the full roadmap and what's
-next (Phase 11: Testing).
+next (Phase 12: Performance and Evaluation).
 
 ## License
 

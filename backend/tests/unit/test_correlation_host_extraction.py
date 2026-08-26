@@ -48,3 +48,15 @@ class TestExtractHostCandidates:
     def test_event_with_no_host_yields_nothing(self):
         event = _FakeEvent(SourceType.DNS, {"query_name": "example.com"}, source_host=None)
         assert extract_host_candidates(event) == []
+
+    def test_network_event_missing_a_field_skips_it(self):
+        event = _FakeEvent(SourceType.NETWORK, {"src_ip": "10.0.0.20"})
+        candidates = extract_host_candidates(event)
+        assert candidates == [("10.0.0.20", EntityRole.SOURCE)]
+
+    def test_network_event_with_malformed_ip_is_skipped(self):
+        event = _FakeEvent(
+            SourceType.NETWORK, {"src_ip": "10.0.0.20", "dst_ip": "not-an-ip-address"}
+        )
+        candidates = extract_host_candidates(event)
+        assert candidates == [("10.0.0.20", EntityRole.SOURCE)]

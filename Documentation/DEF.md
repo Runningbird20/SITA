@@ -1431,3 +1431,54 @@ Verified against the live docker-compose stack: the frontend image was rebuilt (
 Same convention as every prior phase's own dashboard entry: Phase 10 shows static "Implemented" on `/status`, not live-checked "Working" — it's the dashboard itself, with no separate REST resource for a live check to point at (the same reasoning as Phase 6).
 
 See [Documentation/PHASE-10.md](PHASE-10.md) for the full narrative and `TODO.md` Phase 10 for the itemized checklist.
+
+---
+
+# Phase 11: Testing
+
+## Scope
+
+Every prior phase already wrote its own tests as it went — Phase 11's task list frames this explicitly as closing gaps and raising coverage, not building a test suite from scratch. It's the phase where that per-phase discipline gets audited: measure real coverage instead of assuming it, close the specific gaps that measurement finds, consolidate fixtures that had drifted into duplication, resolve the one open architectural question TODO.md left for this phase (`[[postgres-vs-sqlite]]`), and give CI a real, enforced coverage threshold instead of just printing a number nobody has to look at.
+
+## Coverage: measured, not assumed
+
+`uv run pytest --cov=app --cov-report=term-missing` was run before any Phase 11 work started, not after — the gap-closing work below is a direct response to what that run actually showed (98% at the start of the phase), not a guess at what might be undertested. `--cov-fail-under=95` is now enforced in CI's `backend-test` job (comfortable margin below the phase's actual ending coverage of 99%, high enough to catch a real regression) — this is the `[HIGH VALUE]` "track and report" task: the job also writes the coverage table to the GitHub Actions step summary and uploads the Cobertura XML as a build artifact, so the number is visible without digging through raw logs.
+
+## What the coverage run actually found (and how each gap was closed)
+
+Not a blanket "add more tests" pass — every addition below traces to a specific line `--cov-report=term-missing` named as unexecuted:
+
+- **`GET /healthz`'s except-branch was never exercised** (`app/api/health.py`, then 81%) — the DB-unavailable path TODO.md's failure-injection task explicitly asks for. Closed with `tests/integration/test_health_api.py`, monkeypatching `Session.execute` to raise and confirming the endpoint still returns `200` with `{"status": "degraded", "database": "unavailable"}` — degradation, not a crash.
+- **No pipeline-level LLM-unavailable test existed** — Phase 6 thoroughly proved `LLMProvider.generate()` itself never raises, but nothing proved the same one layer up, at `run_triage()`, the function real callers actually invoke. `TestLLMUnavailableDegradesGracefully` in `test_triage_pipeline.py` runs `run_triage()` with a `MockProvider` configured to raise `LLMProviderError`/`LLMTimeoutError` on every call, and confirms it doesn't raise, produces `AnalysisResult` rows correctly marked `provider_error`/`timeout`, and — the part that actually matters — the triggering `Incident` and its `Alert`s are byte-for-byte what deterministic detection and correlation left them, untouched by the LLM being down.
+- **No test ran the complete chain against real data** — every dataset-backed integration test from Phases 3-5 stops at correlation. `test_full_pipeline_against_datasets.py` is the one test that runs ingest → detect → extract IOCs → MITRE-map → correlate → triage against the real checked-in multi-stage scenario (not ad-hoc data), ending with a fully-analyzed incident: real deterministic alerts and IOCs, a real rule-sourced MITRE mapping, and real (mock-backed) `AnalysisResult` rows, all coexisting and distinguishable by construction.
+- **Several REST API filters had never actually been exercised by a passing request** — not "low coverage," genuinely never called: `Alert.status`, `SecurityEvent.since`/`until`, `AnalysisResult`'s `alert_id`-scoped branch, `IOC.validation_status`, and `Recommendation.alert_id`/`source`. Each is a real, documented query parameter that a client could have been silently relying on with zero test evidence it worked. Closed with one targeted test per filter across the Phase 9 API test files. `GET /alerts/{id}/mitre-techniques`'s own 404 branch (distinct from `GET /alerts/{id}`'s) was in the same state — closed alongside it.
+- **IOC extractor false-positive/malformed-input paths were thinner than the pattern `TestIPv4` already established** — `ipv6.py` was at 79%: its private/loopback filter and its `ipaddress.IPv6Address` `ValueError` handling (a value the deliberately-permissive regex matches but isn't actually valid, e.g. `1::2::3` with two `::` compressions) were never hit, because `test_scan_filters_loopback`'s existing input never actually matched the regex in the first place (a leading `::` after whitespace fails the pattern's own `\b` word-boundary anchor) — confirmed directly, not assumed, before writing the replacement test. `domain`/`email`/`file_hash`/`url` each had one untested dedup branch. All five now match `TestIPv4`'s existing rigor exactly: public match, filtered match, dedup, malformed rejection.
+- **Two correlation-scoring branches, one title-generation branch**: `_time_gap_seconds` returning early for an alert *before* the incident's window (the mirror case of the existing "gap beyond decay window" test, which only checked *after*) and for an incident signature with no activity window yet (a fresh `IncidentSignature` before any alert has merged into it — confirmed this scores the *full* time weight, not zero, since "nothing to conflict with" is treated as no gap; an assumption worth checking, not asserting blind). `generate_title()`'s fallback from an entity-link identifier to an IPv4/IPv6 IOC identifier, when an alert has an IOC but no linked entity, was untested. `extract_host_candidates()`'s missing-field and malformed-IP-address branches on `network` events were untested.
+
+## Reusable fixtures: `brute_force_events`, consolidated
+
+`_brute_force_events()` — a 10-event, single-source, single-host auth-failure burst that trips exactly the `ssh_brute_force` rule — was defined near-identically in `test_correlation_pipeline.py`, `test_mitre_pipeline.py`, and `test_triage_pipeline.py`, each with its own copy of the same `NOW` constant. Consolidated into `brute_force_events` (`tests/conftest.py`), alongside `make_event` and the now-shared `BRUTE_FORCE_NOW`. This is TODO.md's own "reusable synthetic fixtures... avoid duplicated ad-hoc data" task, applied to the one piece of ad-hoc data that had actually drifted into duplication — `tests/integration/conftest.py`'s `seed_full_incident()` (Phase 9) was already the equivalent consolidation for API-layer tests and needed no further change.
+
+## `[[postgres-vs-sqlite]]` resolved: both, every run, via one opt-in fixture
+
+Every test using the shared `db_session` fixture — most of `tests/unit/`, plus the dataset-backed integration tests — now runs against a real Postgres instance when `TEST_POSTGRES_URL` is set, each test isolated in its own transaction via SQLAlchemy 2.0's `Session(bind=connection, join_transaction_mode="create_savepoint")` (a `SAVEPOINT` per test, so a test's own `db_session.commit()` calls never escape the outer rollback). `TEST_POSTGRES_URL` is deliberately a distinct variable from `DATABASE_URL`/`Settings.database_url` — the app's own config — so a developer's ordinary `.env` can never accidentally point the test suite at a real database; it only activates when explicitly, separately set, which today is only `.github/workflows/ci.yml`'s new `backend-test-postgres` job (running against that job's own ephemeral, empty `postgres:16-alpine` service container). Verified locally first, against a disposable scratch database (`sita_test`, dropped afterward) rather than trusted blind: 254 tests passed for real against Postgres, and querying tables directly afterward confirmed zero leftover rows — the rollback isolation genuinely holds. Tests that build their own engine directly — the CLI tests' local SQLite fixtures, the API tests' `TestClient` DB override — are unaffected by this and still run against SQLite even in the Postgres CI job; this is stated plainly rather than left to look like broader coverage than it is.
+
+This resolves the open question in favor of "both, every run": SQLite alone already let one real bug through once (Phase 7's over-length `prompt_version` `VARCHAR` tag), caught only because a phase's own manual live-Postgres verification happened to run afterward. Making Postgres verification periodic/optional would make catching that class of bug periodic/optional too.
+
+## CI: coverage-gated, both dialects, frontend tests included
+
+`.github/workflows/ci.yml` gained a coverage threshold and step-summary reporting on `backend-test`, a new `backend-test-postgres` job (renamed from `backend-migrations-postgres`, now running the real suite rather than only `alembic upgrade head`), and an `npm run test` step on the frontend job (Phase 10 added a real Vitest suite; CI never ran it until now — closed as part of this phase's own "audit what's actually covered" mandate, even though it's a frontend gap, not a backend one).
+
+## Phase 11 Status: implemented
+
+Everything above is implemented and verified:
+
+- Coverage threshold + reporting: `.github/workflows/ci.yml`'s `backend-test` job (`--cov-fail-under=95`, step-summary + XML artifact)
+- Dual-dialect fixture: `backend/tests/conftest.py` (`TEST_POSTGRES_URL`-gated `db_session`)
+- New Postgres CI job: `.github/workflows/ci.yml`'s `backend-test-postgres`
+- New tests: `backend/tests/integration/test_health_api.py`, `backend/tests/integration/test_full_pipeline_against_datasets.py`, `TestLLMUnavailableDegradesGracefully` in `test_triage_pipeline.py`, plus targeted additions across `test_ioc_extractors.py`, `test_correlation_scoring.py`, `test_correlation_title.py`, `test_correlation_host_extraction.py`, and the Phase 9 API test files
+- Consolidated fixture: `brute_force_events`/`BRUTE_FORCE_NOW` in `backend/tests/conftest.py`, replacing three near-duplicate local copies
+- Frontend CI: `npm run test` added to `.github/workflows/ci.yml`'s frontend job
+- Final numbers: 338 backend tests passed (1 opportunistic skip, the live-Ollama test), 99.06% line coverage; 11 frontend tests passed; 254 of the backend tests independently verified against a real Postgres instance
+
+See [Documentation/PHASE-11.md](PHASE-11.md) for the full narrative and `TODO.md` Phase 11 for the itemized checklist.

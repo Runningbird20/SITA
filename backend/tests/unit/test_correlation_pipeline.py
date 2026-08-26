@@ -1,39 +1,15 @@
-from datetime import UTC, datetime, timedelta
-
 from sqlalchemy import select
 
 from app.correlation.pipeline import run_correlation
 from app.detection.pipeline import run_detection
 from app.ioc.pipeline import run_ioc_extraction
-from app.models.enums import IncidentStatus, SourceType
+from app.models.enums import IncidentStatus
 from app.models.incident import Incident
-
-NOW = datetime(2026, 1, 15, 3, 0, 0, tzinfo=UTC)
-
-
-def _brute_force_events(make_event, source_ip, dest_host, base_offset=0):
-    events = []
-    for i in range(10):
-        events.append(
-            make_event(
-                SourceType.AUTH,
-                NOW + timedelta(seconds=base_offset + i * 20),
-                {
-                    "event_result": "failure",
-                    "username": "admin",
-                    "source_ip": source_ip,
-                    "dest_host": dest_host,
-                    "auth_method": "password",
-                },
-                host=dest_host,
-            )
-        )
-    return events
 
 
 class TestRunCorrelation:
-    def test_single_alert_creates_new_incident(self, db_session, make_event):
-        _brute_force_events(make_event, "198.51.100.1", "db01.internal")
+    def test_single_alert_creates_new_incident(self, db_session, brute_force_events):
+        brute_force_events("198.51.100.1", "db01.internal")
         db_session.commit()
         run_detection(db_session)
         db_session.commit()
@@ -47,11 +23,11 @@ class TestRunCorrelation:
         assert incident.status == IncidentStatus.OPEN
         assert "SSH Brute Force" in incident.title
 
-    def test_alerts_sharing_ip_and_close_in_time_merge(self, db_session, make_event):
+    def test_alerts_sharing_ip_and_close_in_time_merge(self, db_session, brute_force_events):
         # Same source IP hitting two different hosts close together in time
         # shares an IOC (the attacker IP) -> should merge into one incident.
-        _brute_force_events(make_event, "198.51.100.1", "db01.internal", base_offset=0)
-        _brute_force_events(make_event, "198.51.100.1", "app02.internal", base_offset=600)
+        brute_force_events("198.51.100.1", "db01.internal", base_offset=0)
+        brute_force_events("198.51.100.1", "app02.internal", base_offset=600)
         db_session.commit()
         run_detection(db_session)
         db_session.commit()
@@ -66,10 +42,10 @@ class TestRunCorrelation:
         assert len(db_session.scalars(select(Incident)).all()) == 1
 
     def test_alerts_far_apart_in_time_with_no_shared_signal_stay_separate(
-        self, db_session, make_event
+        self, db_session, brute_force_events
     ):
-        _brute_force_events(make_event, "198.51.100.1", "db01.internal", base_offset=0)
-        _brute_force_events(make_event, "198.51.100.2", "app02.internal", base_offset=6 * 3600)
+        brute_force_events("198.51.100.1", "db01.internal", base_offset=0)
+        brute_force_events("198.51.100.2", "app02.internal", base_offset=6 * 3600)
         db_session.commit()
         run_detection(db_session)
         db_session.commit()
@@ -81,8 +57,8 @@ class TestRunCorrelation:
         assert report.incidents_joined == 0
         assert len(db_session.scalars(select(Incident)).all()) == 2
 
-    def test_closed_incident_is_not_rejoined(self, db_session, make_event):
-        _brute_force_events(make_event, "198.51.100.1", "db01.internal", base_offset=0)
+    def test_closed_incident_is_not_rejoined(self, db_session, brute_force_events):
+        brute_force_events("198.51.100.1", "db01.internal", base_offset=0)
         db_session.commit()
         run_detection(db_session)
         db_session.commit()
@@ -95,7 +71,7 @@ class TestRunCorrelation:
 
         # A second, clearly-related burst (same IP, close in time) arrives
         # after the incident was closed by an analyst.
-        _brute_force_events(make_event, "198.51.100.1", "db01.internal", base_offset=300)
+        brute_force_events("198.51.100.1", "db01.internal", base_offset=300)
         db_session.commit()
         run_detection(db_session)
         db_session.commit()
@@ -109,8 +85,10 @@ class TestRunCorrelation:
         statuses = {i.status for i in incidents}
         assert statuses == {IncidentStatus.CLOSED, IncidentStatus.OPEN}
 
-    def test_rerunning_does_not_reprocess_already_correlated_alerts(self, db_session, make_event):
-        _brute_force_events(make_event, "198.51.100.1", "db01.internal")
+    def test_rerunning_does_not_reprocess_already_correlated_alerts(
+        self, db_session, brute_force_events
+    ):
+        brute_force_events("198.51.100.1", "db01.internal")
         db_session.commit()
         run_detection(db_session)
         db_session.commit()

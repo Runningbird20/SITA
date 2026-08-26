@@ -31,6 +31,17 @@ class TestListAndGetAnalysisResults:
         assert body["total"] == 1
         assert body["items"][0]["task_type"] == "incident_summary"
 
+    def test_list_scoped_by_alert_id(self, client):
+        test_client, session_factory = client
+        ids = seed_full_incident(session_factory)
+
+        # The fixture's one AnalysisResult is incident-scoped, not
+        # alert-scoped, so this exercises the alert_id filter branch and
+        # correctly finds nothing.
+        response = test_client.get("/api/v1/analysis-results", params={"alert_id": ids["alert_id"]})
+        assert response.status_code == 200
+        assert response.json()["total"] == 0
+
     def test_filter_by_task_type(self, client):
         test_client, session_factory = client
         ids = seed_full_incident(session_factory)

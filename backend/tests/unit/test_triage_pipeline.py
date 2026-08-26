@@ -1,27 +1,28 @@
 import json
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 
 from sqlalchemy import select
 
 from app.correlation.pipeline import run_correlation
 from app.detection.pipeline import run_detection
+from app.llm.exceptions import LLMProviderError, LLMTimeoutError
 from app.llm.mock_provider import MockProvider
 from app.llm.registry import default_llm_config
 from app.llm.types import LLMConfig, RawCompletion
 from app.models.analysis_result import AnalysisResult
 from app.models.associations import AlertMitreMapping
 from app.models.enums import (
+    AlertStatus,
     AnalysisTaskType,
     AnalysisValidationStatus,
+    IncidentStatus,
     MitreMappingSource,
-    SourceType,
 )
 from app.models.incident import Incident
 from app.models.mitre import MITRETechnique
 from app.models.recommendation import Recommendation
 from app.triage.pipeline import TASKS, run_triage
-
-NOW = datetime(2026, 1, 15, 3, 0, 0, tzinfo=UTC)
+from tests.conftest import BRUTE_FORCE_NOW
 
 _VALID_COMPLETIONS = [
     RawCompletion(
@@ -65,25 +66,11 @@ _VALID_COMPLETIONS = [
     ),
 ]
 
-
-def _brute_force_events(make_event, source_ip="198.51.100.1", dest_host="db01.internal"):
-    for i in range(10):
-        make_event(
-            SourceType.AUTH,
-            NOW + timedelta(seconds=i * 20),
-            {
-                "event_result": "failure",
-                "username": "admin",
-                "source_ip": source_ip,
-                "dest_host": dest_host,
-                "auth_method": "password",
-            },
-            host=dest_host,
-        )
+_FAST_CONFIG = LLMConfig(model="test-model", max_retries=0, retry_backoff_seconds=0)
 
 
-def _make_incident(db_session, make_event) -> Incident:
-    _brute_force_events(make_event)
+def _make_incident(db_session, brute_force_events) -> Incident:
+    brute_force_events()
     db_session.commit()
     run_detection(db_session)
     db_session.commit()
@@ -93,8 +80,8 @@ def _make_incident(db_session, make_event) -> Incident:
 
 
 class TestRunTriage:
-    def test_creates_one_analysis_result_per_task(self, db_session, make_event):
-        incident = _make_incident(db_session, make_event)
+    def test_creates_one_analysis_result_per_task(self, db_session, brute_force_events):
+        incident = _make_incident(db_session, brute_force_events)
         provider = MockProvider(responses=list(_VALID_COMPLETIONS))
 
         report = run_triage(db_session, provider=provider, config=default_llm_config())
@@ -110,8 +97,8 @@ class TestRunTriage:
         assert report.analysis_results_skipped == 0
         assert report.incidents_processed == 1
 
-    def test_investigation_steps_creates_recommendations(self, db_session, make_event):
-        _make_incident(db_session, make_event)
+    def test_investigation_steps_creates_recommendations(self, db_session, brute_force_events):
+        _make_incident(db_session, brute_force_events)
         provider = MockProvider(responses=list(_VALID_COMPLETIONS))
 
         report = run_triage(db_session, provider=provider, config=default_llm_config())
@@ -130,9 +117,9 @@ class TestRunTriage:
         assert all(str(r.source) == "llm" for r in recs)
 
     def test_mitre_suggestion_without_local_technique_creates_no_mapping(
-        self, db_session, make_event
+        self, db_session, brute_force_events
     ):
-        _make_incident(db_session, make_event)
+        _make_incident(db_session, brute_force_events)
         provider = MockProvider(responses=list(_VALID_COMPLETIONS))
 
         report = run_triage(db_session, provider=provider, config=default_llm_config())
@@ -148,8 +135,10 @@ class TestRunTriage:
         ).one()
         assert result.parsed_output["techniques"][0]["technique_id"] == "T1110.001"
 
-    def test_mitre_suggestion_with_local_technique_creates_mapping(self, db_session, make_event):
-        incident = _make_incident(db_session, make_event)
+    def test_mitre_suggestion_with_local_technique_creates_mapping(
+        self, db_session, brute_force_events
+    ):
+        incident = _make_incident(db_session, brute_force_events)
         db_session.add(
             MITRETechnique(
                 technique_id="T1110.001",
@@ -170,8 +159,8 @@ class TestRunTriage:
         assert all(m.source == MitreMappingSource.LLM for m in mappings)
         assert report.mitre_mappings_created == len(incident.alerts)
 
-    def test_rerun_without_force_is_idempotent(self, db_session, make_event):
-        _make_incident(db_session, make_event)
+    def test_rerun_without_force_is_idempotent(self, db_session, brute_force_events):
+        _make_incident(db_session, brute_force_events)
         provider = MockProvider(responses=list(_VALID_COMPLETIONS))
         run_triage(db_session, provider=provider, config=default_llm_config())
         db_session.commit()
@@ -184,8 +173,8 @@ class TestRunTriage:
         assert report.analysis_results_skipped == len(TASKS)
         assert len(db_session.scalars(select(AnalysisResult)).all()) == len(TASKS)
 
-    def test_force_regenerates_every_task(self, db_session, make_event):
-        _make_incident(db_session, make_event)
+    def test_force_regenerates_every_task(self, db_session, brute_force_events):
+        _make_incident(db_session, brute_force_events)
         provider = MockProvider(responses=list(_VALID_COMPLETIONS))
         run_triage(db_session, provider=provider, config=default_llm_config())
         db_session.commit()
@@ -199,12 +188,11 @@ class TestRunTriage:
         assert report.analysis_results_created == len(TASKS)
         assert len(db_session.scalars(select(AnalysisResult)).all()) == 2 * len(TASKS)
 
-    def test_invalid_output_creates_no_recommendation(self, db_session, make_event):
-        _make_incident(db_session, make_event)
+    def test_invalid_output_creates_no_recommendation(self, db_session, brute_force_events):
+        _make_incident(db_session, brute_force_events)
         provider = MockProvider(responses=RawCompletion(text="not json"))
-        fast_config = LLMConfig(model="test-model", max_retries=0, retry_backoff_seconds=0)
 
-        run_triage(db_session, provider=provider, config=fast_config)
+        run_triage(db_session, provider=provider, config=_FAST_CONFIG)
         db_session.commit()
 
         results = db_session.scalars(select(AnalysisResult)).all()
@@ -213,9 +201,9 @@ class TestRunTriage:
         assert db_session.scalars(select(Recommendation)).all() == []
         assert db_session.scalars(select(AlertMitreMapping)).all() == []
 
-    def test_incident_id_scopes_to_one_incident(self, db_session, make_event):
-        incident_a = _make_incident(db_session, make_event)
-        _brute_force_events(make_event, source_ip="203.0.113.9", dest_host="app02.internal")
+    def test_incident_id_scopes_to_one_incident(self, db_session, brute_force_events):
+        incident_a = _make_incident(db_session, brute_force_events)
+        brute_force_events(source_ip="203.0.113.9", dest_host="app02.internal")
         db_session.commit()
         run_detection(db_session)
         db_session.commit()
@@ -233,13 +221,13 @@ class TestRunTriage:
         results = db_session.scalars(select(AnalysisResult)).all()
         assert all(r.incident_id == incident_a.id for r in results)
 
-    def test_since_filters_incidents_by_last_activity(self, db_session, make_event):
-        _make_incident(db_session, make_event)
+    def test_since_filters_incidents_by_last_activity(self, db_session, brute_force_events):
+        _make_incident(db_session, brute_force_events)
         provider = MockProvider(responses=list(_VALID_COMPLETIONS))
 
         report = run_triage(
             db_session,
-            since=NOW + timedelta(days=1),
+            since=BRUTE_FORCE_NOW + timedelta(days=1),
             provider=provider,
             config=default_llm_config(),
         )
@@ -247,3 +235,52 @@ class TestRunTriage:
 
         assert report.incidents_processed == 0
         assert db_session.scalars(select(AnalysisResult)).all() == []
+
+
+class TestLLMUnavailableDegradesGracefully:
+    """TODO.md Phase 11: 'Failure-case tests... (LLM unavailable) confirming
+    graceful degradation, not crashes.' Phase 6 already proves generate()
+    itself never raises; this proves the same holds one layer up, at the
+    pipeline run real callers actually invoke, and that the incident's
+    deterministic data is completely unaffected by the LLM being down.
+    """
+
+    def test_provider_error_on_every_call_does_not_raise_and_incident_stays_intact(
+        self, db_session, brute_force_events
+    ):
+        incident = _make_incident(db_session, brute_force_events)
+        original_status = incident.status
+        original_severity = incident.severity
+        alert_count_before = len(incident.alerts)
+
+        provider = MockProvider(raises=LLMProviderError("ollama unreachable"))
+
+        report = run_triage(db_session, provider=provider, config=_FAST_CONFIG)
+        db_session.commit()
+
+        assert report.analysis_results_created == len(TASKS)
+        results = db_session.scalars(select(AnalysisResult)).all()
+        assert all(r.validation_status == AnalysisValidationStatus.PROVIDER_ERROR for r in results)
+        assert all(r.confidence is None for r in results)
+        assert db_session.scalars(select(Recommendation)).all() == []
+        assert db_session.scalars(select(AlertMitreMapping)).all() == []
+
+        # The incident and its alerts are exactly as deterministic detection
+        # and correlation left them — untouched by the LLM being down.
+        db_session.refresh(incident)
+        assert incident.status == original_status
+        assert incident.severity == original_severity
+        assert len(incident.alerts) == alert_count_before
+        assert incident.alerts[0].status == AlertStatus.NEW
+        assert incident.status == IncidentStatus.OPEN
+
+    def test_timeout_on_every_call_does_not_raise(self, db_session, brute_force_events):
+        _make_incident(db_session, brute_force_events)
+        provider = MockProvider(raises=LLMTimeoutError("timed out after 30s"))
+
+        report = run_triage(db_session, provider=provider, config=_FAST_CONFIG)
+        db_session.commit()
+
+        assert report.analysis_results_created == len(TASKS)
+        results = db_session.scalars(select(AnalysisResult)).all()
+        assert all(r.validation_status == AnalysisValidationStatus.TIMEOUT for r in results)

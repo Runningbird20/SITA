@@ -3,7 +3,8 @@ from datetime import UTC, datetime, timedelta
 from app.correlation.title import generate_title
 from app.models.alert import Alert
 from app.models.detection import Detection
-from app.models.enums import AlertStatus
+from app.models.enums import AlertStatus, ExtractionSource, IOCType, ValidationStatus
+from app.models.ioc import IOC
 
 NOW = datetime(2026, 1, 17, 12, 0, 0, tzinfo=UTC)
 
@@ -56,3 +57,20 @@ class TestGenerateTitle:
         a2 = _alert(detection, 300)
         title = generate_title([a1, a2])
         assert title == "SSH Brute Force"
+
+    def test_single_alert_falls_back_to_ip_ioc_when_no_entity_link(self):
+        # No AlertEntity link (the primary identifier source), but there is
+        # an IPv4 IOC — generate_title should fall back to it.
+        alert = _alert(_detection("Port Scanning"), 0)
+        alert.iocs.append(
+            IOC(
+                ioc_type=IOCType.IPV4,
+                value="198.51.100.9",
+                extraction_source=ExtractionSource.REGEX,
+                validation_status=ValidationStatus.VALID,
+                confidence=0.7,
+                first_seen=NOW,
+                last_seen=NOW,
+            )
+        )
+        assert generate_title([alert]) == "Port Scanning — 198.51.100.9"
