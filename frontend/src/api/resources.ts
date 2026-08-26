@@ -2,12 +2,14 @@ import { apiFetch, buildQuery } from "./client";
 import type {
   Alert,
   AlertMitreMapping,
+  AnalysisFeedback,
   AnalysisResult,
   AnalysisTaskType,
   AlertStatus,
   Detection,
   DetectionCategory,
   DetectionDetail,
+  FeedbackRating,
   IOC,
   IOCType,
   Incident,
@@ -135,6 +137,23 @@ export function fetchAnalysisResults(
     task_type: params.taskType,
   });
   return apiFetch<Page<AnalysisResult>>(`${PREFIX}/analysis-results${qs}`);
+}
+
+export function setAnalysisFeedback(
+  analysisResultId: string,
+  rating: FeedbackRating,
+): Promise<AnalysisFeedback> {
+  return apiFetch<AnalysisFeedback>(`${PREFIX}/analysis-results/${analysisResultId}/feedback`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ rating }),
+  });
+}
+
+export function clearAnalysisFeedback(analysisResultId: string): Promise<void> {
+  return apiFetch<void>(`${PREFIX}/analysis-results/${analysisResultId}/feedback`, {
+    method: "DELETE",
+  });
 }
 
 export function fetchRecommendations(

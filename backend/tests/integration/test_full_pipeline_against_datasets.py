@@ -34,7 +34,10 @@ _FAST_CONFIG = LLMConfig(model="test-model", max_retries=0, retry_backoff_second
 _VALID_COMPLETIONS = [
     RawCompletion(
         text=json.dumps(
-            {"summary": "Multi-stage attack.", "key_points": ["brute force", "lateral movement"]}
+            {
+                "summary": "Multi-stage attack from 203.0.113.7.",
+                "key_points": ["brute force from 203.0.113.7", "lateral movement"],
+            }
         )
     ),
     RawCompletion(
@@ -45,11 +48,15 @@ _VALID_COMPLETIONS = [
             {
                 "category": "lateral movement",
                 "kill_chain_stage": "actions on objectives",
-                "rationale": "PowerShell activity following brute force.",
+                "rationale": "PowerShell activity following brute force from 203.0.113.7.",
             }
         )
     ),
-    RawCompletion(text=json.dumps({"hypotheses": ["Compromised credentials", "Insider threat"]})),
+    RawCompletion(
+        text=json.dumps(
+            {"hypotheses": ["Compromised credentials from 203.0.113.7", "Insider threat"]}
+        )
+    ),
     RawCompletion(
         text=json.dumps({"steps": [{"text": "Isolate the affected host", "priority": "high"}]})
     ),

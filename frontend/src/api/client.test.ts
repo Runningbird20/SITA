@@ -61,4 +61,15 @@ describe("apiFetch Authorization header", () => {
 
     expect(capturedHeaders?.has("Authorization")).toBe(false);
   });
+
+  it("resolves with undefined for a 204 No Content response, not a JSON parse error", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(null, { status: 204 })),
+    );
+
+    await expect(
+      apiFetch("/api/v1/analysis-results/some-id/feedback", { method: "DELETE" }),
+    ).resolves.toBeUndefined();
+  });
 });

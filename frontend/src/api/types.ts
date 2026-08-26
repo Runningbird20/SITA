@@ -159,6 +159,16 @@ export interface IncidentTechniqueEntry {
   sources: MitreMappingSource[];
 }
 
+export type FeedbackRating = "up" | "down";
+
+export interface AnalysisFeedback {
+  id: string;
+  analysis_result_id: string;
+  rating: FeedbackRating;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface AnalysisResult {
   id: string;
   incident_id: string | null;
@@ -174,6 +184,8 @@ export interface AnalysisResult {
   latency_ms: number;
   prompt_tokens: number | null;
   completion_tokens: number | null;
+  grounding_retry_used: boolean;
+  feedback: AnalysisFeedback | null;
   created_at: string;
 }
 

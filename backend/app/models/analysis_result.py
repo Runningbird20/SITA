@@ -1,7 +1,7 @@
 import uuid
 from typing import TYPE_CHECKING
 
-from sqlalchemy import CheckConstraint, ForeignKey, Index, Integer, String, Text
+from sqlalchemy import Boolean, CheckConstraint, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.session import Base
@@ -11,6 +11,7 @@ from app.models.enums import AnalysisTaskType, AnalysisValidationStatus
 
 if TYPE_CHECKING:
     from app.models.alert import Alert
+    from app.models.analysis_feedback import AnalysisFeedback
     from app.models.incident import Incident
 
 
@@ -47,6 +48,10 @@ class AnalysisResult(UUIDPKMixin, CreatedAtMixin, Base):
     latency_ms: Mapped[int] = mapped_column(Integer, nullable=False)
     prompt_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
     completion_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    grounding_retry_used: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
     incident: Mapped["Incident | None"] = relationship(back_populates="analysis_results")
     alert: Mapped["Alert | None"] = relationship(back_populates="analysis_results")
+    feedback: Mapped["AnalysisFeedback | None"] = relationship(
+        back_populates="analysis_result", uselist=False, cascade="all, delete-orphan"
+    )

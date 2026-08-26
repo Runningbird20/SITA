@@ -2,6 +2,7 @@ import uuid
 from datetime import datetime
 
 from app.models.enums import AnalysisTaskType, AnalysisValidationStatus
+from app.schemas.analysis_feedback import AnalysisFeedbackRead
 from app.schemas.base import ORMBase
 
 
@@ -20,4 +21,6 @@ class AnalysisResultRead(ORMBase):
     latency_ms: int
     prompt_tokens: int | None = None
     completion_tokens: int | None = None
+    grounding_retry_used: bool
+    feedback: AnalysisFeedbackRead | None = None
     created_at: datetime
