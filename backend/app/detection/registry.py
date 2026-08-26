@@ -1,4 +1,6 @@
+from app.detection.anomalous_volume import AnomalousEventVolumeRule
 from app.detection.base import DetectionRule
+from app.detection.dns_tunneling import DNSTunnelingRule
 from app.detection.impossible_travel import ImpossibleTravelRule
 from app.detection.password_spraying import PasswordSprayingRule
 from app.detection.port_scanning import PortScanningRule
@@ -15,6 +17,8 @@ RULES: list[DetectionRule] = [
     SuspiciousPowerShellRule(),
     ImpossibleTravelRule(),
     RepeatedAuthFailuresRule(),
+    DNSTunnelingRule(),
+    AnomalousEventVolumeRule(),
 ]
 
 RULES_BY_KEY: dict[str, DetectionRule] = {rule.rule_key: rule for rule in RULES}

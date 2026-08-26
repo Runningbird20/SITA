@@ -41,6 +41,18 @@ def compute_alert_fingerprint(detection_id: uuid.UUID, matched_event_ids: list[u
     return hashlib.sha256(raw.encode()).hexdigest()
 
 
+def compute_evidence_fingerprint(matched_event_ids: list[uuid.UUID]) -> str:
+    """Identifies "the same exact set of evidence," deliberately without a
+    detection_id — resolves `[[cross-rule-dedup]]`, see DEF.md § Phase 3
+    "Post-roadmap addition: cross-rule fingerprint dedup". Two different
+    rules that land on the identical matched-event set both hash to this
+    same value, unlike `compute_alert_fingerprint` above, which is scoped
+    per-rule by design.
+    """
+    sorted_ids = sorted(str(event_id) for event_id in matched_event_ids)
+    return hashlib.sha256(",".join(sorted_ids).encode()).hexdigest()
+
+
 _SEVERITY_WEIGHT: dict[Severity, float] = {
     Severity.LOW: 0.25,
     Severity.MEDIUM: 0.5,

@@ -1,5 +1,7 @@
 from datetime import UTC, datetime, timedelta
 
+from app.detection.anomalous_volume import AnomalousEventVolumeRule
+from app.detection.dns_tunneling import DNSTunnelingRule
 from app.detection.impossible_travel import ImpossibleTravelRule
 from app.detection.password_spraying import PasswordSprayingRule
 from app.detection.port_scanning import PortScanningRule
@@ -296,4 +298,176 @@ class TestRepeatedAuthFailures:
                 auth_event(make_event, i * 20, "failure", "admin", f"198.51.100.{i % 4 + 10}")
             )
         findings = RepeatedAuthFailuresRule().evaluate(db_session, events, {})
+        assert findings == []
+
+
+class TestDNSTunneling:
+    def _dns_event(
+        self,
+        make_event,
+        offset_seconds,
+        query_name,
+        response_code="NOERROR",
+        resolver_ip="10.0.0.2",
+        query_type="A",
+    ):
+        return make_event(
+            SourceType.DNS,
+            NOW + timedelta(seconds=offset_seconds),
+            {
+                "query_name": query_name,
+                "query_type": query_type,
+                "response_code": response_code,
+                "resolver_ip": resolver_ip,
+            },
+        )
+
+    def test_dga_style_cycling_under_shared_suffix_triggers(self, db_session, make_event):
+        # Mirrors data/synthetic_events/dns/suspicious_domain.jsonl: a couple
+        # of NXDOMAIN lookups against random-looking candidate names, then a
+        # resolved name queried for TXT (a classic DNS C2 exfil pattern),
+        # all sharing the ".example" pseudo-TLD.
+        events = [
+            self._dns_event(make_event, 0, "xk29fh3mdq7z.example", response_code="NXDOMAIN"),
+            self._dns_event(make_event, 15, "b7q1lz9wpm2a.example", response_code="NXDOMAIN"),
+            self._dns_event(make_event, 30, "cdn-update-service.example", query_type="TXT"),
+        ]
+        findings = DNSTunnelingRule().evaluate(db_session, events, {})
+        assert len(findings) == 1
+        assert len(findings[0].matched_event_ids) == 3
+        assert findings[0].severity_factors["nxdomain_ratio"] > 0
+
+    def test_ordinary_multi_domain_browsing_does_not_trigger(self, db_session, make_event):
+        # Several distinct, real, low-entropy SLDs sharing a real public
+        # TLD (.com) within one window — the exact shape the suffix-level
+        # grouping deliberately relies on the entropy/NXDOMAIN gate to keep
+        # safe, since it pools all of these into one group.
+        events = [
+            self._dns_event(make_event, 0, "google.com"),
+            self._dns_event(make_event, 5, "github.com"),
+            self._dns_event(make_event, 10, "slack.com"),
+        ]
+        findings = DNSTunnelingRule().evaluate(db_session, events, {})
+        assert findings == []
+
+    def test_below_distinct_name_threshold_does_not_trigger(self, db_session, make_event):
+        events = [
+            self._dns_event(make_event, 0, "xk29fh3mdq7z.example", response_code="NXDOMAIN"),
+            self._dns_event(make_event, 15, "b7q1lz9wpm2a.example", response_code="NXDOMAIN"),
+        ]
+        findings = DNSTunnelingRule().evaluate(db_session, events, {})
+        assert findings == []
+
+    def test_high_entropy_without_nxdomain_still_triggers(self, db_session, make_event):
+        # All resolve successfully (no NXDOMAIN signal), but the labels are
+        # random-looking enough on their own to cross the entropy gate.
+        events = [
+            self._dns_event(make_event, 0, "xk29fh3mdq7z.example"),
+            self._dns_event(make_event, 15, "b7q1lz9wpm2a.example"),
+            self._dns_event(make_event, 30, "mq0zxv8ktn5r.example"),
+        ]
+        findings = DNSTunnelingRule().evaluate(db_session, events, {})
+        assert len(findings) == 1
+        assert findings[0].severity_factors["nxdomain_ratio"] == 0
+        assert findings[0].severity_factors["avg_label_entropy"] > 0
+
+    def test_different_resolvers_are_not_merged(self, db_session, make_event):
+        events = [
+            self._dns_event(
+                make_event,
+                0,
+                "xk29fh3mdq7z.example",
+                response_code="NXDOMAIN",
+                resolver_ip="10.0.0.2",
+            ),
+            self._dns_event(
+                make_event,
+                15,
+                "b7q1lz9wpm2a.example",
+                response_code="NXDOMAIN",
+                resolver_ip="10.0.0.3",
+            ),
+            self._dns_event(
+                make_event,
+                30,
+                "mq0zxv8ktn5r.example",
+                response_code="NXDOMAIN",
+                resolver_ip="10.0.0.4",
+            ),
+        ]
+        findings = DNSTunnelingRule().evaluate(db_session, events, {})
+        assert findings == []
+
+
+class TestAnomalousEventVolume:
+    def _day_events(self, make_event, host, day_offset, count):
+        day = NOW.replace(hour=8, minute=0, second=0, microsecond=0) + timedelta(days=day_offset)
+        return [
+            make_event(
+                SourceType.ENDPOINT,
+                day + timedelta(minutes=i * 3),
+                {
+                    "process_name": "explorer.exe",
+                    "command_line": "C:\\Windows\\explorer.exe",
+                    "pid": 1000 + i,
+                    "user": "jrivera",
+                },
+                host=host,
+            )
+            for i in range(count)
+        ]
+
+    def test_volume_spike_after_baseline_triggers(self, db_session, make_event):
+        events = []
+        for day_offset, count in enumerate([5, 4, 6, 5, 4]):
+            events += self._day_events(make_event, "ws-20.internal", day_offset, count)
+        events += self._day_events(make_event, "ws-20.internal", 5, 25)
+
+        findings = AnomalousEventVolumeRule().evaluate(db_session, events, {})
+        assert len(findings) == 1
+        assert len(findings[0].matched_event_ids) == 25
+        assert findings[0].severity_factors["baseline_days"] == 5
+
+    def test_normal_day_within_baseline_does_not_trigger(self, db_session, make_event):
+        events = []
+        for day_offset, count in enumerate([5, 4, 6, 5, 4]):
+            events += self._day_events(make_event, "ws-21.internal", day_offset, count)
+        # One more ordinary day, same shape as the baseline itself.
+        events += self._day_events(make_event, "ws-21.internal", 5, 5)
+
+        findings = AnomalousEventVolumeRule().evaluate(db_session, events, {})
+        assert findings == []
+
+    def test_insufficient_baseline_history_does_not_trigger(self, db_session, make_event):
+        events = []
+        # Only 2 prior days — below the default min_baseline_days of 3 —
+        # even though the following day is a huge, genuine spike.
+        for day_offset, count in enumerate([5, 4]):
+            events += self._day_events(make_event, "ws-22.internal", day_offset, count)
+        events += self._day_events(make_event, "ws-22.internal", 2, 30)
+
+        findings = AnomalousEventVolumeRule().evaluate(db_session, events, {})
+        assert findings == []
+
+    def test_below_min_current_day_count_does_not_trigger(self, db_session, make_event):
+        events = []
+        # A steady 1-event/day baseline, then a day with only 3 events —
+        # statistically anomalous (z-score comfortably over threshold) but
+        # too small in absolute terms to be worth an alert.
+        for day_offset in range(4):
+            events += self._day_events(make_event, "ws-23.internal", day_offset, 1)
+        events += self._day_events(make_event, "ws-23.internal", 4, 3)
+
+        findings = AnomalousEventVolumeRule().evaluate(db_session, events, {})
+        assert findings == []
+
+    def test_different_hosts_do_not_share_a_baseline(self, db_session, make_event):
+        events = []
+        for day_offset, count in enumerate([5, 4, 6, 5, 4]):
+            events += self._day_events(make_event, "ws-24.internal", day_offset, count)
+        # A second host with only one day of history and a large count —
+        # its own insufficient baseline must not borrow ws-24's.
+        events += self._day_events(make_event, "ws-25.internal", 5, 25)
+
+        findings = AnomalousEventVolumeRule().evaluate(db_session, events, {})
         assert findings == []
