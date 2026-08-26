@@ -17,8 +17,22 @@ class InvalidQueryParameterError(Exception):
 
 
 class UnauthorizedError(Exception):
-    """Raised by app.api.deps.require_auth. See DEF.md § Phase 14."""
+    """Raised by app.auth.deps.get_current_user when auth is enabled (at
+    least one User exists) and the request has no valid session token. See
+    DEF.md § Phase 14, "Multi-user / RBAC (post-roadmap)".
+    """
 
-    def __init__(self, message: str = "Missing or invalid API token"):
+    def __init__(self, message: str = "Missing or invalid session token"):
+        self.message = message
+        super().__init__(message)
+
+
+class ForbiddenError(Exception):
+    """Raised by app.auth.deps.require_admin — a valid, authenticated user
+    whose role doesn't permit the action (distinct from UnauthorizedError:
+    this is "I know who you are, but no").
+    """
+
+    def __init__(self, message: str = "This action requires the admin role"):
         self.message = message
         super().__init__(message)

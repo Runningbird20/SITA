@@ -1,0 +1,52 @@
+# Closes the gap CI's blocking pip-audit/npm-audit checks (Phase 14,
+# DEF.md § Phase 14 Status) don't cover on their own: those catch a
+# vulnerable dependency *at PR time*, but nothing previously re-checked
+# already-merged dependencies as new advisories were published. Dependabot
+# opens a PR the moment one lands, which then runs through those same
+# blocking checks before merge — this file is the missing "who opens the
+# PR" half, not a replacement for the CI checks themselves.
+version: 2
+updates:
+  # Backend — uv-managed (pyproject.toml + uv.lock).
+  - package-ecosystem: "uv"
+    directory: "/backend"
+    schedule:
+      interval: "weekly"
+    labels:
+      - "dependencies"
+      - "backend"
+
+  # Frontend — npm.
+  - package-ecosystem: "npm"
+    directory: "/frontend"
+    schedule:
+      interval: "weekly"
+    labels:
+      - "dependencies"
+      - "frontend"
+
+  # Base images for both Dockerfiles (backend/Dockerfile, frontend/Dockerfile).
+  - package-ecosystem: "docker"
+    directory: "/backend"
+    schedule:
+      interval: "weekly"
+    labels:
+      - "dependencies"
+      - "docker"
+
+  - package-ecosystem: "docker"
+    directory: "/frontend"
+    schedule:
+      interval: "weekly"
+    labels:
+      - "dependencies"
+      - "docker"
+
+  # The CI workflow's own actions/*@vN pins.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    labels:
+      - "dependencies"
+      - "ci"

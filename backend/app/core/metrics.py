@@ -1,11 +1,21 @@
-"""In-process metrics registry — every metric declared once, here, at import
-time. See DEF.md § Phase 13. Mirrors app/core/config.py's precedent of
-declaring the whole configuration surface in one discoverable place, rather
-than ad-hoc Counter()/Histogram() calls scattered per module.
+"""Metrics registry — every metric declared once, here, at import time.
+See DEF.md § Phase 13. Mirrors app/core/config.py's precedent of
+declaring the whole configuration surface in one discoverable place,
+rather than ad-hoc Counter()/Histogram() calls scattered per module.
 
-In-memory, per-process (prometheus_client's default registry) — correct for
-this project's documented single-process run mode, would under-count across
-multiple worker processes without a push-gateway or shared registry.
+Metric declarations here are unchanged whether the process is running
+single- or multi-worker — Counter/Histogram objects work the same either
+way. What differs is how a scrape reads them back: single-process (the
+documented default) reads this module's in-memory registry directly;
+multi-process (PROMETHEUS_MULTIPROC_DIR set — see docker-compose.prod.yml)
+has each worker write to its own file in that directory instead, and
+app/api/metrics.py merges them at scrape time via
+prometheus_client.multiprocess. See DEF.md § Phase 14, "Multi-process
+metrics (post-roadmap)". Counter/Histogram are both natively
+sum-aggregated across processes by that merge — this file has never
+declared a Gauge, which would need special multiprocess handling
+(default aggregation is "most recent," rarely what you want across
+workers) this project has accordingly never had to add.
 """
 
 from prometheus_client import Counter, Histogram

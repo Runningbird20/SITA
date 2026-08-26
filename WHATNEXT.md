@@ -6,14 +6,6 @@ Nothing here is a promise or a roadmap. It's organized roughly by effort-vs-impa
 
 ---
 
-## Security and deployment hardening
-
-- **TLS.** Explicitly out of scope through Phase 14 (plain HTTP, stated as a local-only limitation — see [DEF.md § Phase 14](Documentation/DEF.md#phase-14-security-hardening)). A real deployment target needs this — either terminate TLS at a reverse proxy (nginx/Caddy in front of the stack) or document that requirement clearly for anyone deploying beyond `localhost`.
-- **A real production Docker Compose profile.** `docker-compose.yml`'s `frontend` service still runs the `dev` target (hot-reload Vite server); the hardened, non-root `production` nginx stage Phase 14 built (`frontend/Dockerfile`) is never actually used by anything. Add a `docker-compose.prod.yml` (or a profile) that uses it, drops `--reload` from the backend's uvicorn command, and points at real TLS.
-- **Multi-user / RBAC.** The single shared bearer token (`[[dashboard-auth]]`, resolved in Phase 14) was the right call for a single-operator local tool — but if this ever needs to serve more than one analyst, that's a real design project: accounts, roles (analyst vs. admin), and an actual audit trail of who did what (right now, nothing tracks *who* triggered a pipeline run or changed an alert's status).
-- **Multi-process metrics/rate-limiting.** Both `app/core/metrics.py` (Prometheus registry) and `app/core/rate_limit.py` are in-process, single-worker state — stated clearly as a limitation at the time (Phase 13/14), but would silently under-count/under-limit the moment this runs behind more than one `uvicorn` worker. A shared store (Redis, or a Prometheus push-gateway for metrics) would be needed first.
-- **Dependency scanning without a human in the loop.** `pip-audit`/`npm audit` run in CI (Phase 14) but nothing automatically opens a PR when a new advisory lands — Dependabot or Renovate would close that gap.
-
 ## AI quality — the honest gap this project already measured
 
 Phase 12's own evaluation is the argument that started this: a live run against a small local model (`qwen2.5:0.5b`) scored **0% grounding rate** and produced a confirmed hallucinated `"ransomware"` classification with zero supporting evidence (see [docs/evaluation_methodology.md](docs/evaluation_methodology.md)). That's not a bug — it's real, measured evidence that small local models produce fluent-but-ungrounded triage text. Few-shot prompting, a grounding-aware retry, and a dashboard feedback signal have since been built for this (see `TODO.md`'s Architecture Decisions Tracker) — this is what's still open:

@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { NavLink, Outlet } from "react-router-dom";
 import { ApiError } from "../api/client";
-import { runPipeline } from "../api/resources";
+import { reanalyze, runPipeline } from "../api/resources";
+import { useAuth } from "./AuthContext";
 import "./Layout.css";
 
 const NAV_ITEMS = [
@@ -16,6 +17,15 @@ const NAV_ITEMS = [
 export function Layout() {
   const [running, setRunning] = useState(false);
   const [result, setResult] = useState<string | null>(null);
+  const [reanalyzing, setReanalyzing] = useState(false);
+  const [reanalyzeResult, setReanalyzeResult] = useState<string | null>(null);
+  const { user, logout } = useAuth();
+  // null user means either "auth disabled" or "not logged in" — AuthGate
+  // never renders Layout in the latter case, so within here null always
+  // means disabled, and both admin-only actions (like every other route)
+  // stay unrestricted, matching the backend's own require_admin behavior
+  // (see app/auth/deps.py).
+  const canRunAdminActions = user === null || user.role === "admin";
 
   async function handleRunPipeline() {
     setRunning(true);
@@ -29,6 +39,21 @@ export function Layout() {
       setResult(err instanceof ApiError ? err.message : "Pipeline run failed.");
     } finally {
       setRunning(false);
+    }
+  }
+
+  async function handleReanalyze() {
+    setReanalyzing(true);
+    setReanalyzeResult(null);
+    try {
+      const report = await reanalyze();
+      setReanalyzeResult(
+        `Done — ${report.analysis_results_created} AI result(s) regenerated across ${report.incidents_processed} incident(s).`,
+      );
+    } catch (err) {
+      setReanalyzeResult(err instanceof ApiError ? err.message : "Reanalyze failed.");
+    } finally {
+      setReanalyzing(false);
     }
   }
 
@@ -51,10 +76,33 @@ export function Layout() {
           </ul>
         </nav>
         <div className="app-nav-footer">
-          <button type="button" onClick={handleRunPipeline} disabled={running}>
-            {running ? "Running…" : "Run pipeline"}
-          </button>
+          {canRunAdminActions && (
+            <button
+              type="button"
+              onClick={handleReanalyze}
+              disabled={reanalyzing}
+              title="Force-regenerate AI analysis for every incident, even ones that already have a result"
+            >
+              {reanalyzing ? "Reanalyzing…" : "Reanalyze"}
+            </button>
+          )}
+          {reanalyzeResult && <p className="app-nav-result">{reanalyzeResult}</p>}
+          {canRunAdminActions && (
+            <button type="button" onClick={handleRunPipeline} disabled={running}>
+              {running ? "Running…" : "Run pipeline"}
+            </button>
+          )}
           {result && <p className="app-nav-result">{result}</p>}
+          {user && (
+            <div className="app-nav-user">
+              <span>
+                {user.username} <span className="app-nav-user-role">({user.role})</span>
+              </span>
+              <button type="button" className="app-nav-logout" onClick={logout}>
+                Log out
+              </button>
+            </div>
+          )}
           <NavLink to="/status" className="app-nav-status-link">
             Build status →
           </NavLink>

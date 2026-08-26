@@ -5,6 +5,8 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.api.deps import PageParams, apply_sort, pagination_params
+from app.auth.deps import CurrentUser, get_current_user
+from app.core.audit import record_audit
 from app.core.config import get_settings
 from app.core.exceptions import InvalidQueryParameterError, NotFoundError
 from app.db.session import get_db
@@ -65,6 +67,7 @@ def set_analysis_feedback(
     analysis_result_id: uuid.UUID,
     body: AnalysisFeedbackCreate,
     db: Session = Depends(get_db),
+    current_user: CurrentUser | None = Depends(get_current_user),
 ) -> AnalysisFeedback:
     """Record an analyst's thumbs up/down on one AI analysis. Idempotent
     upsert — one vote per AnalysisResult; casting a new one overwrites the
@@ -82,6 +85,14 @@ def set_analysis_feedback(
         feedback = AnalysisFeedback(analysis_result_id=analysis_result_id, rating=body.rating)
         db.add(feedback)
 
+    record_audit(
+        db,
+        current_user,
+        action="feedback.set",
+        resource_type="analysis_result",
+        resource_id=analysis_result_id,
+        detail={"rating": body.rating.value},
+    )
     db.commit()
     db.refresh(feedback)
     return feedback
@@ -89,7 +100,9 @@ def set_analysis_feedback(
 
 @router.delete("/{analysis_result_id}/feedback", status_code=204)
 def clear_analysis_feedback(
-    analysis_result_id: uuid.UUID, db: Session = Depends(get_db)
+    analysis_result_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    current_user: CurrentUser | None = Depends(get_current_user),
 ) -> Response:
     """Remove a previously-cast vote (un-voting), if any. No-op, not an
     error, if there was never a vote to clear.
@@ -100,6 +113,13 @@ def clear_analysis_feedback(
 
     if result.feedback is not None:
         db.delete(result.feedback)
+        record_audit(
+            db,
+            current_user,
+            action="feedback.clear",
+            resource_type="analysis_result",
+            resource_id=analysis_result_id,
+        )
         db.commit()
 
     return Response(status_code=204)

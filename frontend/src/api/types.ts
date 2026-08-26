@@ -28,6 +28,30 @@ export type AnalysisTaskType =
   | "investigation_steps"
   | "mitre_suggestion";
 export type AnalysisValidationStatus = "valid" | "invalid" | "timeout" | "provider_error";
+export type UserRole = "analyst" | "admin";
+
+export interface User {
+  id: string;
+  username: string;
+  role: UserRole;
+  created_at: string;
+}
+
+export interface LoginResponse {
+  token: string;
+  user: User;
+  expires_at: string;
+}
+
+export interface AuditLogEntry {
+  id: string;
+  user_id: string | null;
+  action: string;
+  resource_type: string | null;
+  resource_id: string | null;
+  detail: Record<string, unknown> | null;
+  created_at: string;
+}
 export type RecommendationSource = "rule_based" | "llm";
 export type RecommendationPriority = "low" | "medium" | "high";
 export type RecommendationStatus = "open" | "acknowledged" | "dismissed" | "completed";

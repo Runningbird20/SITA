@@ -6,6 +6,7 @@ import type {
   AnalysisResult,
   AnalysisTaskType,
   AlertStatus,
+  AuditLogEntry,
   Detection,
   DetectionCategory,
   DetectionDetail,
@@ -16,6 +17,7 @@ import type {
   IncidentDetail,
   IncidentStatus,
   IncidentTechniqueEntry,
+  LoginResponse,
   MitreTechnique,
   Page,
   PipelineRunReport,
@@ -24,6 +26,8 @@ import type {
   RecommendationSource,
   RecommendationStatus,
   Severity,
+  TriageRunReport,
+  User,
   ValidationStatus,
 } from "./types";
 
@@ -196,4 +200,46 @@ export function runPipeline(since?: string): Promise<PipelineRunReport> {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ since: since ?? null }),
   });
+}
+
+/** Force-regenerates AI triage only (every task, even for incidents that
+ * already have a result) — distinct from runPipeline, which skips triage
+ * for anything already done. See DEF.md § Phase 9, "Reanalyze
+ * (post-roadmap)".
+ */
+export function reanalyze(since?: string): Promise<TriageRunReport> {
+  return apiFetch<TriageRunReport>(`${PREFIX}/pipeline/reanalyze`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ since: since ?? null }),
+  });
+}
+
+export function fetchMe(): Promise<User | null> {
+  return apiFetch<User | null>(`${PREFIX}/auth/me`);
+}
+
+export function login(username: string, password: string): Promise<LoginResponse> {
+  return apiFetch<LoginResponse>(`${PREFIX}/auth/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username, password }),
+  });
+}
+
+export function logout(): Promise<void> {
+  return apiFetch<void>(`${PREFIX}/auth/logout`, { method: "POST" });
+}
+
+export function fetchAuditLog(
+  params: PageParams & { userId?: string; action?: string },
+): Promise<Page<AuditLogEntry>> {
+  const qs = buildQuery({
+    limit: params.limit,
+    offset: params.offset,
+    sort: params.sort,
+    user_id: params.userId,
+    action: params.action,
+  });
+  return apiFetch<Page<AuditLogEntry>>(`${PREFIX}/audit-log${qs}`);
 }

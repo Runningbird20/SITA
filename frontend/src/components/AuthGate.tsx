@@ -1,31 +1,40 @@
 import { useEffect, useState } from "react";
-import { apiFetch, ApiError, setAuthToken } from "../api/client";
+import { ApiError, clearAuthToken, setAuthToken } from "../api/client";
+import { fetchMe, login as loginRequest, logout as logoutRequest } from "../api/resources";
+import type { User } from "../api/types";
+import { AuthContext } from "./AuthContext";
 import "./AuthGate.css";
 
 type GateState = "checking" | "authorized" | "unauthorized";
 
 /** Wraps the dashboard routes (not /status, which stays reachable for
- * diagnostics the same way /healthz does — see App.tsx). See DEF.md §
- * Phase 14: the backend's auth is opt-in (API_AUTH_TOKEN unset by
- * default), so this probe succeeds with no token and the gate never
- * appears for the default local-dev path.
+ * diagnostics the same way /healthz does — see App.tsx). GET /auth/me
+ * returns null when auth is disabled (no User rows configured — the
+ * default) and 401s only when auth is enabled and the request has no
+ * valid session token, so a single probe tells this component everything
+ * it needs: whether to show a login form at all, and who's signed in if
+ * not. See DEF.md § Phase 14.
  */
 export function AuthGate({ children }: { children: React.ReactNode }) {
   const [state, setState] = useState<GateState>("checking");
-  const [tokenInput, setTokenInput] = useState("");
+  const [user, setUser] = useState<User | null>(null);
+  const [usernameInput, setUsernameInput] = useState("");
+  const [passwordInput, setPasswordInput] = useState("");
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    apiFetch("/api/v1/incidents?limit=1")
-      .then(() => {
-        if (!cancelled) setState("authorized");
+    fetchMe()
+      .then((me) => {
+        if (cancelled) return;
+        setUser(me);
+        setState("authorized");
       })
       .catch((err: unknown) => {
         if (cancelled) return;
-        // A 401 means auth is required — anything else (network error,
-        // backend unreachable) shouldn't permanently lock the dashboard
-        // behind a token form it can't even verify against.
+        // A 401 means a login is required — anything else (network
+        // error, backend unreachable) shouldn't permanently lock the
+        // dashboard behind a form it can't even verify against.
         setState(err instanceof ApiError && err.status === 401 ? "unauthorized" : "authorized");
       });
     return () => {
@@ -35,15 +44,31 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    setAuthToken(tokenInput.trim());
     setError(null);
     setState("checking");
-    apiFetch("/api/v1/incidents?limit=1")
-      .then(() => setState("authorized"))
+    loginRequest(usernameInput.trim(), passwordInput)
+      .then((response) => {
+        setAuthToken(response.token);
+        setUser(response.user);
+        setState("authorized");
+      })
       .catch(() => {
-        setError("That token was rejected. Check it and try again.");
+        setError("Invalid username or password.");
         setState("unauthorized");
       });
+  }
+
+  function handleLogout() {
+    // Best-effort: the session is cleared locally regardless of whether
+    // the revoke call itself succeeds (e.g. the backend is unreachable) —
+    // a user asking to log out shouldn't get stuck logged in over a
+    // network blip.
+    logoutRequest().catch(() => {});
+    clearAuthToken();
+    setUser(null);
+    setUsernameInput("");
+    setPasswordInput("");
+    setState("unauthorized");
   }
 
   if (state === "checking") {
@@ -55,16 +80,22 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
       <div className="auth-gate">
         <form className="auth-gate-form" onSubmit={handleSubmit}>
           <h1>SITA</h1>
-          <p>This backend requires an API token.</p>
+          <p>Sign in to continue.</p>
           <input
-            type="password"
-            value={tokenInput}
-            onChange={(e) => setTokenInput(e.target.value)}
-            placeholder="API token"
+            type="text"
+            value={usernameInput}
+            onChange={(e) => setUsernameInput(e.target.value)}
+            placeholder="Username"
             autoFocus
           />
-          <button type="submit" disabled={!tokenInput.trim()}>
-            Continue
+          <input
+            type="password"
+            value={passwordInput}
+            onChange={(e) => setPasswordInput(e.target.value)}
+            placeholder="Password"
+          />
+          <button type="submit" disabled={!usernameInput.trim() || !passwordInput}>
+            Sign in
           </button>
           {error && <p className="auth-gate-error">{error}</p>}
         </form>
@@ -72,5 +103,7 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
     );
   }
 
-  return children;
+  return (
+    <AuthContext.Provider value={{ user, logout: handleLogout }}>{children}</AuthContext.Provider>
+  );
 }

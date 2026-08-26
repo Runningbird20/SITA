@@ -12,7 +12,8 @@ from fastapi.responses import JSONResponse, RedirectResponse
 
 from app.api.alerts import router as alerts_router
 from app.api.analysis_results import router as analysis_results_router
-from app.api.deps import require_auth
+from app.api.audit_log import router as audit_log_router
+from app.api.auth import router as auth_router
 from app.api.detections import router as detections_router
 from app.api.events import router as events_router
 from app.api.health import router as health_router
@@ -22,8 +23,14 @@ from app.api.metrics import router as metrics_router
 from app.api.mitre import router as mitre_router
 from app.api.pipeline import router as pipeline_router
 from app.api.recommendations import router as recommendations_router
+from app.auth.deps import get_current_user
 from app.core.config import get_settings
-from app.core.exceptions import InvalidQueryParameterError, NotFoundError, UnauthorizedError
+from app.core.exceptions import (
+    ForbiddenError,
+    InvalidQueryParameterError,
+    NotFoundError,
+    UnauthorizedError,
+)
 from app.core.logging import configure_logging
 from app.core.metrics import http_request_duration_seconds, http_requests_total
 from app.core.rate_limit import check_rate_limit
@@ -218,6 +225,14 @@ async def handle_unauthorized(_: Request, exc: UnauthorizedError) -> JSONRespons
     )
 
 
+@app.exception_handler(ForbiddenError)
+async def handle_forbidden(_: Request, exc: ForbiddenError) -> JSONResponse:
+    return JSONResponse(
+        status_code=403,
+        content={"error": {"code": "forbidden", "message": exc.message, "details": None}},
+    )
+
+
 @app.exception_handler(NotFoundError)
 async def handle_not_found(_: Request, exc: NotFoundError) -> JSONResponse:
     return JSONResponse(
@@ -252,12 +267,22 @@ async def handle_request_validation_error(_: Request, exc: RequestValidationErro
     )
 
 
-# health/metrics deliberately excluded from require_auth — see DEF.md §
-# Phase 14 (network-restricted rather than app-token-gated, by convention).
+# health/metrics deliberately excluded from auth — see DEF.md § Phase 14
+# (network-restricted rather than app-token-gated, by convention).
 app.include_router(health_router)
 app.include_router(metrics_router)
 
-_auth = [Depends(require_auth)]
+# auth_router and audit_log_router are deliberately NOT in _auth below:
+# each of their own routes declares the right per-route dependency itself
+# (auth_router's /login is intentionally public — that's how you get a
+# token in the first place; /logout, /me, /users use get_current_user /
+# require_admin directly; audit_log_router's one route uses require_admin
+# directly). Layering the blanket dependency on top would just re-run the
+# same check redundantly.
+app.include_router(auth_router)
+app.include_router(audit_log_router)
+
+_auth = [Depends(get_current_user)]
 app.include_router(events_router, dependencies=_auth)
 app.include_router(alerts_router, dependencies=_auth)
 app.include_router(incidents_router, dependencies=_auth)
