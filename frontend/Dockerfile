@@ -1,5 +1,5 @@
 # --- dev target: Vite dev server with hot reload, used by docker-compose ---
-FROM node:22-slim AS dev
+FROM node:26-slim AS dev
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
@@ -8,7 +8,7 @@ EXPOSE 5173
 CMD ["npm", "run", "dev", "--", "--host", "0.0.0.0"]
 
 # --- build target: production static bundle ---
-FROM node:22-slim AS build
+FROM node:26-slim AS build
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
