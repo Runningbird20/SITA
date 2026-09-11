@@ -92,7 +92,7 @@ class TestAuthEnabled:
         response = test_client.post(
             "/api/v1/pipeline/run", headers={"Authorization": "Bearer " + token}
         )
-        assert response.status_code == 200
+        assert response.status_code == 202
 
     def test_analyst_cannot_trigger_reanalyze(self, client):
         test_client, session_factory = client
@@ -113,7 +113,7 @@ class TestAuthEnabled:
         response = test_client.post(
             "/api/v1/pipeline/reanalyze", headers={"Authorization": "Bearer " + token}
         )
-        assert response.status_code == 200
+        assert response.status_code == 202
 
     def test_logout_revokes_the_token(self, client):
         test_client, session_factory = client

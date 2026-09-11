@@ -52,6 +52,7 @@ class AnomalousEventVolumeRule(DetectionRule):
         "min_current_day_count": 5,
     }
     mitre_technique_ids = ("T1496",)
+    primary_threshold_key = "z_score_threshold"
 
     def evaluate(
         self, db: Session, events: Sequence[SecurityEvent], config: dict

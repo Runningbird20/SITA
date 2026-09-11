@@ -78,6 +78,7 @@ class DNSTunnelingRule(DetectionRule):
         "entropy_threshold": 3.3,
     }
     mitre_technique_ids = ("T1071.004",)
+    primary_threshold_key = "min_distinct_names"
 
     def evaluate(
         self, db: Session, events: Sequence[SecurityEvent], config: dict

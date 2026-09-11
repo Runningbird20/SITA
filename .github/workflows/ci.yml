@@ -162,9 +162,9 @@ jobs:
       - name: Prettier check
         working-directory: frontend
         run: npm run format:check
-      - name: Unit/component tests
+      - name: Unit/component tests (with coverage threshold)
         working-directory: frontend
-        run: npm run test
+        run: npm run test:coverage
       # Blocking on high/critical only, unlike backend's fully-blocking
       # pip-audit — DEF.md § Phase 14: npm's ecosystem routinely carries
       # low/moderate advisories in dev-only transitive tooling (build

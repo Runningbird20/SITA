@@ -38,7 +38,7 @@ class TestRunDetection:
         report = run_detection(db_session)
         db_session.commit()
 
-        assert report.rules_run == 9
+        assert report.rules_run == 12
         assert report.alerts_by_rule["ssh_brute_force"] == 1
         assert report.alerts_created >= 1
 

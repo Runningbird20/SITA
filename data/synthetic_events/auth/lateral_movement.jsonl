@@ -1,0 +1,4 @@
+{"timestamp": "2026-01-18T14:00:00Z", "host": "app01.internal", "event_result": "success", "username": "mward", "source_ip": "10.0.0.77", "auth_method": "publickey"}
+{"timestamp": "2026-01-18T14:01:30Z", "host": "app02.internal", "event_result": "success", "username": "mward", "source_ip": "10.0.0.77", "auth_method": "publickey"}
+{"timestamp": "2026-01-18T14:03:00Z", "host": "db02.internal", "event_result": "success", "username": "mward", "source_ip": "10.0.0.77", "auth_method": "publickey"}
+{"timestamp": "2026-01-18T14:04:15Z", "host": "web03.internal", "event_result": "success", "username": "mward", "source_ip": "10.0.0.77", "auth_method": "publickey"}

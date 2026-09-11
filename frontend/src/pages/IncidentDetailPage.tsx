@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { Link, useParams } from "react-router-dom";
 import { AiBadge, Pill, SeverityBadge } from "../components/ui/Badges";
 import { FeedbackButtons } from "../components/ui/FeedbackButtons";
+import { IncidentChatPanel } from "../components/ui/IncidentChatPanel";
 import { ErrorState, LoadingState } from "../components/ui/QueryState";
 import { useApiQuery } from "../hooks/useApiQuery";
 import { fetchIncident } from "../api/resources";
@@ -197,6 +198,11 @@ export function IncidentDetailPage() {
             </div>
           ))
         )}
+      </div>
+
+      <div className="detail-section">
+        <h2>Ask about this incident</h2>
+        <IncidentChatPanel incidentId={incident.id} />
       </div>
 
       <div className="detail-section">

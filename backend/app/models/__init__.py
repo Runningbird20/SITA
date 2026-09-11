@@ -18,12 +18,14 @@ from app.models.associations import (
 )
 from app.models.audit_log import AuditLogEntry
 from app.models.auth_token import AuthToken
+from app.models.chat_message import ChatMessage
 from app.models.detection import Detection
 from app.models.entity import Entity
 from app.models.event import SecurityEvent
 from app.models.incident import Incident
 from app.models.ioc import IOC
 from app.models.mitre import MITRETechnique
+from app.models.pipeline_job import PipelineJob
 from app.models.recommendation import Recommendation
 from app.models.user import User
 
@@ -36,12 +38,14 @@ __all__ = [
     "AnalysisResult",
     "AuditLogEntry",
     "AuthToken",
+    "ChatMessage",
     "Detection",
     "Entity",
     "EventEntity",
     "IOC",
     "Incident",
     "MITRETechnique",
+    "PipelineJob",
     "Recommendation",
     "SecurityEvent",
     "User",

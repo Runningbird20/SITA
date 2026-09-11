@@ -23,6 +23,17 @@ class GroundingReport:
     text_outputs_grounded: int = 0
     mitre_suggestions_checked: int = 0
     mitre_suggestions_overlapping: int = 0
+    # Individual suggested technique_id values, across every mitre_suggestion
+    # result — finer-grained than the per-result counters above, since one
+    # result can suggest several IDs, some real and some not. Added
+    # post-roadmap alongside full ATT&CK Enterprise vendoring (see DEF.md §
+    # Phase 8 "Post-roadmap addition: full ATT&CK Enterprise vendoring") —
+    # with only 8 curated techniques, "does this ID exist locally" was a
+    # weak signal (most real IDs wouldn't exist regardless); with ~700
+    # vendored, it's a real check for "did the model invent a technique_id"
+    # distinct from "did it happen to overlap with the rule mapping."
+    mitre_technique_ids_suggested: int = 0
+    mitre_technique_ids_valid: int = 0
     ungrounded_examples: list[str] = field(default_factory=list)
 
     @property
@@ -41,6 +52,14 @@ class GroundingReport:
             else None
         )
 
+    @property
+    def mitre_suggestion_validity_rate(self) -> float | None:
+        return (
+            self.mitre_technique_ids_valid / self.mitre_technique_ids_suggested
+            if self.mitre_technique_ids_suggested
+            else None
+        )
+
     def as_dict(self) -> dict:
         return {
             "text_outputs_checked": self.text_outputs_checked,
@@ -49,6 +68,9 @@ class GroundingReport:
             "mitre_suggestions_checked": self.mitre_suggestions_checked,
             "mitre_suggestions_overlapping": self.mitre_suggestions_overlapping,
             "mitre_overlap_rate": self.mitre_overlap_rate,
+            "mitre_technique_ids_suggested": self.mitre_technique_ids_suggested,
+            "mitre_technique_ids_valid": self.mitre_technique_ids_valid,
+            "mitre_suggestion_validity_rate": self.mitre_suggestion_validity_rate,
             "ungrounded_examples": self.ungrounded_examples,
         }
 
@@ -75,7 +97,14 @@ def evaluate_grounding(
     incident: Incident,
     results: list[AnalysisResult],
     mitre_rollup: list[IncidentTechniqueEntry],
+    known_technique_ids: set[str] | None = None,
 ) -> GroundingReport:
+    """`known_technique_ids`: every technique_id in the local vendored
+    dataset (e.g. `set(db.scalars(select(MITRETechnique.technique_id)))`),
+    used to score `mitre_suggestion_validity_rate`. Optional — omitted
+    (None), the validity counters simply stay at zero/None, same as any
+    other check this function skips when its inputs aren't available.
+    """
     report = GroundingReport()
     identifiers = real_identifiers(incident)
     rule_technique_ids = {entry.technique_id for entry in mitre_rollup if "rule" in entry.sources}
@@ -119,5 +148,8 @@ def evaluate_grounding(
             suggested_ids = {t.get("technique_id") for t in techniques}
             if suggested_ids & rule_technique_ids:
                 report.mitre_suggestions_overlapping += 1
+            if known_technique_ids is not None:
+                report.mitre_technique_ids_suggested += len(suggested_ids)
+                report.mitre_technique_ids_valid += len(suggested_ids & known_technique_ids)
 
     return report

@@ -1,0 +1,4 @@
+{"timestamp": "2026-01-18T22:10:00Z", "host": "ws-30.internal", "process_name": "cmd.exe", "command_line": "net user backdoor P@ssw0rd123 /add", "pid": 5100, "parent_pid": 5000, "parent_process_name": "cmd.exe", "user": "jsmith"}
+{"timestamp": "2026-01-18T22:10:30Z", "host": "ws-30.internal", "process_name": "cmd.exe", "command_line": "net localgroup administrators backdoor /add", "pid": 5101, "parent_pid": 5000, "parent_process_name": "cmd.exe", "user": "jsmith"}
+{"timestamp": "2026-01-18T22:11:00Z", "host": "ws-30.internal", "process_name": "whoami.exe", "command_line": "whoami /priv", "pid": 5102, "parent_pid": 5000, "parent_process_name": "cmd.exe", "user": "jsmith"}
+{"timestamp": "2026-01-18T22:11:30Z", "host": "lnx-04.internal", "process_name": "bash", "command_line": "sudo su -", "pid": 6200, "parent_pid": 6100, "parent_process_name": "bash", "user": "svc-app"}

@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.db.session import get_db
+from app.jobs import executor as jobs_executor
 from app.main import app
 from app.models import Base
 from app.models.alert import Alert
@@ -40,11 +41,22 @@ NOW = datetime(2026, 1, 15, 3, 0, 0, tzinfo=UTC)
 
 
 @pytest.fixture
-def client():
+def client(monkeypatch):
     """A TestClient wired to a fresh in-memory SQLite DB per test, shared
     by every API integration test. StaticPool: without it, each new
     connection to ":memory:" gets its own fresh (tableless) database — the
     request thread would never see the tables created below.
+
+    app.jobs.executor's background pipeline jobs open their own DB session
+    via app.db.session.SessionLocal rather than the request-scoped
+    Depends(get_db) — since they run after the response, outside any
+    request's dependency-injection scope (see DEF.md § Phase 9,
+    "Post-roadmap addition: background pipeline jobs"). That session
+    creation needs patching too, or a background job would silently write
+    to the real app-level database instead of this test's isolated one —
+    same monkeypatch shape as tests/unit/test_mitre_cli.py's `SessionLocal`
+    patch, applied here since the API tests never call the job functions
+    directly.
     """
     engine = create_engine(
         "sqlite:///:memory:",
@@ -60,6 +72,7 @@ def client():
 
     Base.metadata.create_all(engine)
     TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    monkeypatch.setattr(jobs_executor, "SessionLocal", TestingSessionLocal)
 
     def _override_get_db():
         db = TestingSessionLocal()

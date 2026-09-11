@@ -7,6 +7,7 @@ import type {
   AnalysisTaskType,
   AlertStatus,
   AuditLogEntry,
+  ChatMessage,
   Detection,
   DetectionCategory,
   DetectionDetail,
@@ -20,13 +21,13 @@ import type {
   LoginResponse,
   MitreTechnique,
   Page,
-  PipelineRunReport,
+  PipelineJob,
   Recommendation,
   RecommendationPriority,
   RecommendationSource,
   RecommendationStatus,
   Severity,
-  TriageRunReport,
+  TuningSuggestion,
   User,
   ValidationStatus,
 } from "./types";
@@ -67,6 +68,14 @@ export function fetchAlertMitreTechniques(id: string): Promise<AlertMitreMapping
   return apiFetch<AlertMitreMapping[]>(`${PREFIX}/alerts/${id}/mitre-techniques`);
 }
 
+export function setAlertStatus(id: string, status: AlertStatus): Promise<Alert> {
+  return apiFetch<Alert>(`${PREFIX}/alerts/${id}/status`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ status }),
+  });
+}
+
 export function fetchIncidents(
   params: PageParams & { status?: IncidentStatus; severity?: Severity },
 ): Promise<Page<Incident>> {
@@ -86,6 +95,25 @@ export function fetchIncident(id: string): Promise<IncidentDetail> {
 
 export function fetchIncidentMitreTechniques(id: string): Promise<IncidentTechniqueEntry[]> {
   return apiFetch<IncidentTechniqueEntry[]>(`${PREFIX}/incidents/${id}/mitre-techniques`);
+}
+
+/** Full conversation thread for one incident, oldest first — see DEF.md
+ * § Phase 7, "Post-roadmap addition: a conversational interface with an
+ * incident".
+ */
+export function fetchIncidentChat(incidentId: string): Promise<ChatMessage[]> {
+  return apiFetch<ChatMessage[]>(`${PREFIX}/incidents/${incidentId}/chat`);
+}
+
+/** Asks a follow-up question about this incident; returns only the
+ * assistant's reply (the caller already knows what it just asked).
+ */
+export function postIncidentChatMessage(incidentId: string, message: string): Promise<ChatMessage> {
+  return apiFetch<ChatMessage>(`${PREFIX}/incidents/${incidentId}/chat`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ message }),
+  });
 }
 
 export function fetchIocs(
@@ -127,6 +155,26 @@ export function fetchDetections(
 
 export function fetchDetection(id: string): Promise<DetectionDetail> {
   return apiFetch<DetectionDetail>(`${PREFIX}/detections/${id}`);
+}
+
+/** Deterministic, advisory-only suggestions computed from analyst
+ * false-positive feedback — see DEF.md § Phase 7, "Post-roadmap addition:
+ * rule tuning suggestions from analyst feedback". Applying one is a
+ * separate, explicit action via updateDetectionConfig.
+ */
+export function fetchTuningSuggestions(): Promise<TuningSuggestion[]> {
+  return apiFetch<TuningSuggestion[]>(`${PREFIX}/detections/tuning-suggestions`);
+}
+
+export function updateDetectionConfig(
+  id: string,
+  config: Record<string, unknown>,
+): Promise<Detection> {
+  return apiFetch<Detection>(`${PREFIX}/detections/${id}/config`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ config }),
+  });
 }
 
 export function fetchAnalysisResults(
@@ -194,8 +242,13 @@ export function fetchMitreTechniques(
   return apiFetch<Page<MitreTechnique>>(`${PREFIX}/mitre-techniques${qs}`);
 }
 
-export function runPipeline(since?: string): Promise<PipelineRunReport> {
-  return apiFetch<PipelineRunReport>(`${PREFIX}/pipeline/run`, {
+/** Schedules the full pipeline as a background job and returns
+ * immediately — the job starts out "pending"/"running" with no `result`
+ * yet. Poll `getPipelineJob` for progress and the eventual report. See
+ * DEF.md § Phase 9, "Post-roadmap addition: background pipeline jobs".
+ */
+export function runPipeline(since?: string): Promise<PipelineJob> {
+  return apiFetch<PipelineJob>(`${PREFIX}/pipeline/run`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ since: since ?? null }),
@@ -204,15 +257,20 @@ export function runPipeline(since?: string): Promise<PipelineRunReport> {
 
 /** Force-regenerates AI triage only (every task, even for incidents that
  * already have a result) — distinct from runPipeline, which skips triage
- * for anything already done. See DEF.md § Phase 9, "Reanalyze
- * (post-roadmap)".
+ * for anything already done. Also scheduled as a background job — see
+ * DEF.md § Phase 9, "Reanalyze (post-roadmap)" and "Post-roadmap
+ * addition: background pipeline jobs".
  */
-export function reanalyze(since?: string): Promise<TriageRunReport> {
-  return apiFetch<TriageRunReport>(`${PREFIX}/pipeline/reanalyze`, {
+export function reanalyze(since?: string): Promise<PipelineJob> {
+  return apiFetch<PipelineJob>(`${PREFIX}/pipeline/reanalyze`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ since: since ?? null }),
   });
+}
+
+export function fetchPipelineJob(jobId: string): Promise<PipelineJob> {
+  return apiFetch<PipelineJob>(`${PREFIX}/pipeline/jobs/${jobId}`);
 }
 
 export function fetchMe(): Promise<User | null> {
