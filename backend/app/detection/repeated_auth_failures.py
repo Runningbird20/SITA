@@ -28,6 +28,7 @@ class RepeatedAuthFailuresRule(DetectionRule):
         "window_seconds": 900,
     }
     mitre_technique_ids = ("T1110",)
+    primary_threshold_key = "failure_threshold"
 
     def evaluate(
         self, db: Session, events: Sequence[SecurityEvent], config: dict

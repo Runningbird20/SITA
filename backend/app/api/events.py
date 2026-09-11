@@ -2,15 +2,17 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from fastapi import APIRouter, Body, Depends, Query
+from fastapi import APIRouter, Body, Depends, Query, Request
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
+from starlette.responses import StreamingResponse
 
 from app.api.deps import PageParams, apply_sort, pagination_params
 from app.core.config import get_settings
 from app.core.exceptions import NotFoundError
 from app.db.session import get_db
 from app.ingestion.service import ingest_records
+from app.live_updates.stream import default_start_timestamp, stream_new_incidents
 from app.models.enums import SourceType
 from app.models.event import SecurityEvent
 from app.schemas.event import SecurityEventRead
@@ -50,6 +52,29 @@ def list_events(
     stmt = apply_sort(stmt, sort, _SORTABLE, default="-occurred_at")
     items = db.scalars(stmt.limit(page.limit).offset(page.offset)).all()
     return Page(items=items, total=total, limit=page.limit, offset=page.offset)
+
+
+@router.get("/stream")
+def stream_events(
+    request: Request,
+    since: datetime | None = Query(
+        None, description="ISO 8601 UTC timestamp; only incidents created after this are streamed"
+    ),
+) -> StreamingResponse:
+    """Server-Sent Events: an `incident_created` event each time a new
+    Incident appears. Registered *before* GET /{event_id} below — see
+    app/live_updates/stream.py's docstring for why the order matters.
+    `since` lets a reconnecting client catch up on anything created while
+    it was disconnected; omitted, only incidents created after the
+    connection opens are streamed. See DEF.md § Phase 9, "Post-roadmap
+    addition: live incident updates (SSE)".
+    """
+    start = since if since is not None else default_start_timestamp()
+    return StreamingResponse(
+        stream_new_incidents(request, start),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @router.get("/{event_id}", response_model=SecurityEventRead)

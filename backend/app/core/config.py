@@ -94,6 +94,14 @@ class Settings(BaseSettings):
     anthropic_model: str = "claude-3-5-haiku-20241022"
     anthropic_base_url: str = "https://api.anthropic.com"
 
+    # Notifications — "noop" (default, zero network calls, matches
+    # llm_provider="mock"'s own zero-friction default) | "webhook" (POSTs
+    # to notifier_webhook_url on every incident that reaches CRITICAL
+    # severity during a correlation run). See DEF.md § Phase 9,
+    # "Post-roadmap addition: incident notifications".
+    notifier: str = "noop"
+    notifier_webhook_url: str = ""
+
 
 @lru_cache
 def get_settings() -> Settings:

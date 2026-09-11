@@ -25,6 +25,7 @@ class PasswordSprayingRule(DetectionRule):
         "window_seconds": 600,
     }
     mitre_technique_ids = ("T1110.003",)
+    primary_threshold_key = "distinct_username_threshold"
 
     def evaluate(
         self, db: Session, events: Sequence[SecurityEvent], config: dict

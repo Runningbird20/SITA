@@ -33,7 +33,13 @@ def _is_strict(method: str, path: str) -> bool:
     if (method, path) in _STRICT_ROUTES:
         return True
     # POST /api/v1/events/{source_type} — path has a variable segment.
-    return method == "POST" and path.startswith("/api/v1/events/")
+    if method == "POST" and path.startswith("/api/v1/events/"):
+        return True
+    # POST /api/v1/incidents/{id}/chat — each call is a real LLM
+    # invocation, not a cheap read; same tier as pipeline runs and event
+    # ingestion. See DEF.md § Phase 7, "Post-roadmap addition: a
+    # conversational interface with an incident".
+    return method == "POST" and path.startswith("/api/v1/incidents/") and path.endswith("/chat")
 
 
 @dataclass

@@ -102,6 +102,18 @@ class DetectionRule(ABC):
     source_types: ClassVar[tuple[SourceType, ...]]
     default_config: ClassVar[dict] = {}
     mitre_technique_ids: ClassVar[tuple[str, ...]] = ()
+    # The single `default_config` key that most directly controls this
+    # rule's sensitivity, if it has one — raising it always means
+    # "require more evidence to fire" (fewer, not more, alerts) across
+    # every rule that declares one, a deliberately uniform convention so
+    # a single "raise by N%" tuning suggestion is valid regardless of
+    # which rule it targets. None for rules with no single such knob
+    # (keyword-matching rules like suspicious_powershell, or rules whose
+    # config is a window/hours range rather than a sensitivity level).
+    # Added post-roadmap alongside analyst-feedback-driven rule tuning —
+    # see DEF.md § Phase 3, "Post-roadmap addition: rule tuning
+    # suggestions from analyst feedback".
+    primary_threshold_key: ClassVar[str | None] = None
 
     @abstractmethod
     def evaluate(

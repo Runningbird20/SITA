@@ -8,6 +8,8 @@ __pycache__/
 htmlcov/
 *.db
 *.sqlite3
+backend/mutants/
+backend/.mutmut-cache
 
 # --- Node (frontend) ---
 node_modules/

@@ -143,3 +143,46 @@ class TestEvaluateGrounding:
         no_output.parsed_output = None
         report = evaluate_grounding(incident, [invalid, no_output], mitre_rollup=[])
         assert report.text_outputs_checked == 0
+
+
+class TestMitreSuggestionValidity:
+    """Resolves DEF.md § Phase 8 'Post-roadmap addition: full ATT&CK
+    Enterprise vendoring' — with ~700 real techniques now vendored, "does
+    this suggested technique_id actually exist locally" is a meaningful
+    check distinct from "did it overlap with a rule mapping."
+    """
+
+    def test_valid_and_invalid_suggestions_are_counted_separately(
+        self, db_session, brute_force_events
+    ):
+        incident = _make_incident(db_session, brute_force_events)
+        result = _result(
+            AnalysisTaskType.MITRE_SUGGESTION,
+            {
+                "techniques": [
+                    {"technique_id": "T1110.001", "technique_name": "Password Guessing"},
+                    {"technique_id": "T9999", "technique_name": "Not A Real Technique"},
+                ]
+            },
+        )
+        report = evaluate_grounding(
+            incident, [result], mitre_rollup=[], known_technique_ids={"T1110.001", "T1046"}
+        )
+        assert report.mitre_technique_ids_suggested == 2
+        assert report.mitre_technique_ids_valid == 1
+        assert report.mitre_suggestion_validity_rate == 0.5
+
+    def test_none_when_known_technique_ids_not_provided(self, db_session, brute_force_events):
+        incident = _make_incident(db_session, brute_force_events)
+        result = _result(
+            AnalysisTaskType.MITRE_SUGGESTION,
+            {"techniques": [{"technique_id": "T1110.001", "technique_name": "x"}]},
+        )
+        report = evaluate_grounding(incident, [result], mitre_rollup=[])
+        assert report.mitre_technique_ids_suggested == 0
+        assert report.mitre_suggestion_validity_rate is None
+
+    def test_none_when_no_mitre_suggestions_checked(self, db_session, brute_force_events):
+        incident = _make_incident(db_session, brute_force_events)
+        report = evaluate_grounding(incident, [], mitre_rollup=[], known_technique_ids={"T1110"})
+        assert report.mitre_suggestion_validity_rate is None

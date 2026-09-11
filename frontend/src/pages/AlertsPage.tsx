@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
+import { AlertStatusSelect } from "../components/ui/AlertStatusSelect";
 import { SeverityBadge } from "../components/ui/Badges";
 import { Pagination } from "../components/ui/Pagination";
 import { EmptyState, ErrorState, LoadingState } from "../components/ui/QueryState";
@@ -130,7 +131,9 @@ export function AlertsPage() {
                   <td className="mono">
                     {ruleNameById.get(alert.detection_id) ?? alert.detection_id}
                   </td>
-                  <td>{alert.status}</td>
+                  <td>
+                    <AlertStatusSelect alertId={alert.id} status={alert.status} />
+                  </td>
                   <td>
                     {alert.incident_id ? (
                       <Link to={`/incidents/${alert.incident_id}`}>view</Link>
