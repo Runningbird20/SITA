@@ -180,6 +180,45 @@ class TestRunTriage:
         assert all(m.source == MitreMappingSource.LLM for m in mappings)
         assert report.mitre_mappings_created == len(incident.alerts)
 
+    def test_mitre_suggestion_prompt_includes_a_real_candidate_technique(
+        self, db_session, brute_force_events
+    ):
+        """Resolves the grounding gap documented in DEF.md § Phase 8
+        'Post-roadmap addition: candidate-technique retrieval' — the
+        mitre_suggestion prompt must show the model real, vendored
+        candidates to choose from, not just ask it to freely recall one.
+        """
+        _make_incident(db_session, brute_force_events)
+        # T1110.001 already gets rule-mapped by ssh_brute_force; a
+        # same-tactic technique with no rule mapping should surface as a
+        # candidate.
+        db_session.add(
+            MITRETechnique(
+                technique_id="T1110.003",
+                name="Password Spraying",
+                tactic="credential-access",
+                description="Adversaries may use a single or small list of passwords.",
+                dataset_version="test",
+            )
+        )
+        db_session.commit()
+
+        captured_prompts: list[str] = []
+
+        class _RecordingProvider(MockProvider):
+            def _complete(self, prompt, config):
+                captured_prompts.append(prompt)
+                return super()._complete(prompt, config)
+
+        provider = _RecordingProvider(responses=list(_VALID_COMPLETIONS))
+        run_triage(db_session, provider=provider, config=default_llm_config())
+        db_session.commit()
+
+        mitre_prompt = captured_prompts[-1]
+        assert "T1110.003" in mitre_prompt
+        assert "Password Spraying" in mitre_prompt
+        assert "do not invent a technique_id" in mitre_prompt
+
     def test_rerun_without_force_is_idempotent(self, db_session, brute_force_events):
         _make_incident(db_session, brute_force_events)
         provider = MockProvider(responses=list(_VALID_COMPLETIONS))

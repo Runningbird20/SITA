@@ -1,8 +1,9 @@
 import { useState } from "react";
 import { Pill, SeverityBadge } from "../components/ui/Badges";
 import { ErrorState, LoadingState } from "../components/ui/QueryState";
+import { TuningSuggestionsPanel } from "../components/ui/TuningSuggestionsPanel";
 import { useApiQuery } from "../hooks/useApiQuery";
-import { fetchAlerts, fetchDetections } from "../api/resources";
+import { fetchAlerts, fetchDetections, fetchTuningSuggestions } from "../api/resources";
 import type { Detection } from "../api/types";
 import "../styles/dashboard.css";
 
@@ -49,6 +50,8 @@ function RecentFirings({ detection }: { detection: Detection }) {
 export function DetectionsPage() {
   const [expanded, setExpanded] = useState<string | null>(null);
   const query = useApiQuery(() => fetchDetections({ limit: 100, sort: "name" }), []);
+  const tuning = useApiQuery(() => fetchTuningSuggestions(), []);
+  const detectionsByRuleKey = new Map((query.data?.items ?? []).map((d) => [d.rule_key, d]));
 
   return (
     <div>
@@ -58,6 +61,18 @@ export function DetectionsPage() {
           <p>Deterministic rule definitions. Click a rule to see its recent firings.</p>
         </div>
       </div>
+
+      {!tuning.error && (
+        <TuningSuggestionsPanel
+          suggestions={tuning.data ?? []}
+          loading={tuning.loading}
+          detectionsByRuleKey={detectionsByRuleKey}
+          onApplied={() => {
+            void tuning.refetch();
+            void query.refetch();
+          }}
+        />
+      )}
 
       {query.loading && <LoadingState label="Loading detections…" />}
       {!query.loading && query.error && (

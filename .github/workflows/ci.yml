@@ -11,7 +11,7 @@ jobs:
     name: Backend / lint
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v7
         with:
           version: "latest"
@@ -29,7 +29,7 @@ jobs:
     name: Backend / dependency scan (pip-audit)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v7
         with:
           version: "latest"
@@ -49,7 +49,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: backend-lint
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v7
         with:
           version: "latest"
@@ -109,7 +109,7 @@ jobs:
           --health-timeout 5s
           --health-retries 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v7
         with:
           version: "latest"
@@ -147,8 +147,8 @@ jobs:
     name: Frontend / lint, test & build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: "22"
           cache: "npm"
@@ -162,9 +162,9 @@ jobs:
       - name: Prettier check
         working-directory: frontend
         run: npm run format:check
-      - name: Unit/component tests
+      - name: Unit/component tests (with coverage threshold)
         working-directory: frontend
-        run: npm run test
+        run: npm run test:coverage
       # Blocking on high/critical only, unlike backend's fully-blocking
       # pip-audit — DEF.md § Phase 14: npm's ecosystem routinely carries
       # low/moderate advisories in dev-only transitive tooling (build

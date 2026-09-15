@@ -22,6 +22,7 @@ from app.evaluation.ai_grounding import mentions_a_real_identifier, real_identif
 from app.llm.base import LLMProvider
 from app.llm.registry import default_llm_config, get_llm_provider
 from app.llm.types import LLMConfig, LLMRequest
+from app.mitre.retrieval import candidate_techniques_for_incident
 from app.models.analysis_result import AnalysisResult
 from app.models.associations import AlertMitreMapping
 from app.models.enums import (
@@ -84,7 +85,11 @@ def _is_grounded(task_type: AnalysisTaskType, parsed_output: dict, identifiers: 
 class _TriageTask:
     task_type: AnalysisTaskType
     prompt_version: str
-    build_prompt: Callable[[str], str]
+    # None for MITRE_SUGGESTION — that task's prompt needs a candidate
+    # shortlist alongside context_block, so it's built via a special case
+    # in run_triage() below instead, using
+    # prompts.build_mitre_suggestion_prompt directly.
+    build_prompt: Callable[[str], str] | None
     response_schema: type[BaseModel]
 
 
@@ -122,7 +127,7 @@ TASKS: list[_TriageTask] = [
     _TriageTask(
         AnalysisTaskType.MITRE_SUGGESTION,
         prompts.PROMPT_VERSION_MITRE_SUGGESTION,
-        prompts.build_mitre_suggestion_prompt,
+        None,
         MitreSuggestionOutput,
     ),
 ]
@@ -203,7 +208,14 @@ def run_triage(
     provider: LLMProvider | None = None,
     config: LLMConfig | None = None,
     force: bool = False,
+    on_progress: Callable[[int, int], None] | None = None,
 ) -> TriageRunReport:
+    """`on_progress(incidents_done, incidents_total)`, called after each
+    incident's tasks all complete — incident granularity, not per-LLM-call,
+    since that's the unit a caller (a background job's status row) can
+    usefully report without threading progress state through every task.
+    Optional; a synchronous caller (the CLI, most tests) simply omits it.
+    """
     provider = provider if provider is not None else get_llm_provider()
     config = config if config is not None else default_llm_config()
 
@@ -215,8 +227,9 @@ def run_triage(
     mitre_mappings_created = 0
     by_task_type: dict[str, int] = {task.task_type.value: 0 for task in TASKS}
 
-    for incident in incidents:
-        context_block = render_context_block(build_incident_context(incident))
+    for incident_index, incident in enumerate(incidents):
+        ctx = build_incident_context(incident)
+        context_block = render_context_block(ctx)
         identifiers = real_identifiers(incident)
 
         for task in TASKS:
@@ -224,9 +237,16 @@ def run_triage(
                 analysis_results_skipped += 1
                 continue
 
+            if task.task_type == AnalysisTaskType.MITRE_SUGGESTION:
+                candidates = candidate_techniques_for_incident(db, ctx)
+                prompt = prompts.build_mitre_suggestion_prompt(context_block, candidates)
+            else:
+                assert task.build_prompt is not None
+                prompt = task.build_prompt(context_block)
+
             request = LLMRequest(
                 task_type=task.task_type,
-                prompt=task.build_prompt(context_block),
+                prompt=prompt,
                 response_schema=task.response_schema,
                 prompt_version=task.prompt_version,
             )
@@ -284,6 +304,9 @@ def run_triage(
                     recommendations_created += _apply_investigation_steps(db, incident, result)
                 elif task.task_type == AnalysisTaskType.MITRE_SUGGESTION:
                     mitre_mappings_created += _apply_mitre_suggestions(db, incident, result)
+
+        if on_progress is not None:
+            on_progress(incident_index + 1, len(incidents))
 
     db.flush()
 

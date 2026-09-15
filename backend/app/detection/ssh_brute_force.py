@@ -24,6 +24,7 @@ class SSHBruteForceRule(DetectionRule):
     source_types = (SourceType.AUTH,)
     default_config = {"failure_threshold": 10, "window_seconds": 300}
     mitre_technique_ids = ("T1110.001",)
+    primary_threshold_key = "failure_threshold"
 
     def evaluate(
         self, db: Session, events: Sequence[SecurityEvent], config: dict

@@ -13,6 +13,7 @@ from datetime import datetime
 
 from app.correlation.pipeline import run_correlation
 from app.db.session import SessionLocal
+from app.notifications.registry import get_notifier
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -29,7 +30,7 @@ def main(argv: list[str] | None = None) -> int:
 
     db = SessionLocal()
     try:
-        report = run_correlation(db, since=since)
+        report = run_correlation(db, since=since, notifier=get_notifier())
         db.commit()
     finally:
         db.close()

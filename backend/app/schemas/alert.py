@@ -1,8 +1,14 @@
 import uuid
 from datetime import datetime
 
+from pydantic import BaseModel
+
 from app.models.enums import AlertStatus, Severity
 from app.schemas.base import ORMBase
+
+
+class AlertStatusUpdate(BaseModel):
+    status: AlertStatus
 
 
 class AlertRead(ORMBase):

@@ -53,3 +53,14 @@ class MitreTechniqueSuggestion(_StrictOutput):
 
 class MitreSuggestionOutput(_StrictOutput):
     techniques: list[MitreTechniqueSuggestion]
+
+
+class ChatAnswerOutput(_StrictOutput):
+    """Post-roadmap addition — see DEF.md § Phase 7, "Post-roadmap
+    addition: a conversational interface with an incident". Deliberately
+    the same one-field shape as SeverityExplanationOutput: a free-text
+    chat answer is still schema-validated JSON like every other task, not
+    a bypass of `LLMProvider.generate()`'s retry/validation pipeline.
+    """
+
+    answer: str

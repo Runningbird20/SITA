@@ -1,19 +1,26 @@
 import uuid
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Response
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.api.converters import to_ioc_read
 from app.api.deps import PageParams, apply_sort, pagination_params
+from app.auth.deps import CurrentUser, get_current_user
+from app.chat.service import ask_incident_question
+from app.core.audit import record_audit
 from app.core.config import get_settings
-from app.core.exceptions import NotFoundError
+from app.core.exceptions import InvalidQueryParameterError, NotFoundError
 from app.db.session import get_db
+from app.export.csv_export import export_incident_csv
+from app.export.pdf_export import export_incident_pdf
 from app.mitre.rollup import incident_technique_rollup
 from app.models.alert import Alert
 from app.models.analysis_result import AnalysisResult
+from app.models.chat_message import ChatMessage
 from app.models.enums import AnalysisTaskType, IncidentStatus, Severity
 from app.models.incident import Incident
+from app.schemas.chat import ChatMessageCreate, ChatMessageRead
 from app.schemas.incident import IncidentDetail, IncidentRead
 from app.schemas.mitre import IncidentTechniqueEntryOut, TechniqueEvidenceOut
 from app.schemas.pagination import Page
@@ -164,3 +171,75 @@ def get_incident_mitre_techniques(
     """
     incident = _get_incident_or_404(db, incident_id)
     return _rollup_out(incident)
+
+
+@router.get("/{incident_id}/export")
+def export_incident(
+    incident_id: uuid.UUID,
+    format: str = Query("csv", description="csv | pdf"),
+    db: Session = Depends(get_db),
+) -> Response:
+    """A downloadable incident report — resolves WHATNEXT.md's "Export"
+    item. See DEF.md § Phase 9, "Post-roadmap addition: incident export
+    (CSV/PDF)". Built from the real ORM Incident, not IncidentDetail —
+    the CSV/PDF builders want the detection *name*, not just its id.
+    """
+    incident = _get_incident_or_404(db, incident_id)
+
+    if format == "csv":
+        content = export_incident_csv(incident)
+        media_type = "text/csv"
+        filename = f"incident-{incident_id}.csv"
+    elif format == "pdf":
+        content = export_incident_pdf(incident)
+        media_type = "application/pdf"
+        filename = f"incident-{incident_id}.pdf"
+    else:
+        raise InvalidQueryParameterError(f"format must be 'csv' or 'pdf', got {format!r}")
+
+    return Response(
+        content=content,
+        media_type=media_type,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.get("/{incident_id}/chat", response_model=list[ChatMessageRead])
+def get_incident_chat(incident_id: uuid.UUID, db: Session = Depends(get_db)) -> list[ChatMessage]:
+    """Full conversation history for this incident, oldest first —
+    resolves WHATNEXT.md's "Bigger bets" item, "a conversational interface
+    with an incident". See DEF.md § Phase 7, "Post-roadmap addition: a
+    conversational interface with an incident".
+    """
+    incident = _get_incident_or_404(db, incident_id)
+    return incident.chat_messages
+
+
+@router.post("/{incident_id}/chat", response_model=ChatMessageRead)
+def post_incident_chat(
+    incident_id: uuid.UUID,
+    body: ChatMessageCreate,
+    db: Session = Depends(get_db),
+    current_user: CurrentUser | None = Depends(get_current_user),
+) -> ChatMessage:
+    """Asks a free-form follow-up question about this incident, grounded
+    in the same context block the six fixed triage tasks use, plus this
+    thread's own prior turns. Returns only the assistant's reply — the
+    question the caller just sent is already known to them; fetch
+    GET .../chat for the full thread including it. Rate-limited under the
+    strict tier (same as pipeline runs and event ingestion), since each
+    call is a real LLM invocation, not a cheap read.
+    """
+    incident = _get_incident_or_404(db, incident_id)
+    reply = ask_incident_question(db, incident, body.message)
+    record_audit(
+        db,
+        current_user,
+        action="incident.chat",
+        resource_type="incident",
+        resource_id=incident_id,
+        detail={"question": body.message},
+    )
+    db.commit()
+    db.refresh(reply)
+    return reply

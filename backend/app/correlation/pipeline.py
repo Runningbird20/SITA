@@ -34,6 +34,7 @@ from app.models.alert import Alert
 from app.models.enums import EntityType, IncidentStatus, IOCType, Severity
 from app.models.event import SecurityEvent
 from app.models.incident import Incident
+from app.notifications.base import NotificationPayload, Notifier
 from app.schemas.correlation_run import CorrelationRunReport
 
 logger = logging.getLogger(__name__)
@@ -114,7 +115,18 @@ def _breakdown_to_dict(breakdown: ScoreBreakdown | None) -> dict | None:
     }
 
 
-def run_correlation(db: Session, since: datetime | None = None) -> CorrelationRunReport:
+def run_correlation(
+    db: Session, since: datetime | None = None, notifier: Notifier | None = None
+) -> CorrelationRunReport:
+    """`notifier`: if given, `notifier.notify()` is called once per
+    incident that reaches CRITICAL severity during this run (new or
+    joined-into) — not once per alert, and not for an incident that was
+    already CRITICAL *before* this run touched it, since every alert is
+    processed exactly once across all runs (`Alert.incident_id.is_(None)`
+    scoping below) — a given incident only re-triggers a notification when
+    a genuinely new alert pushes or keeps it at CRITICAL. See DEF.md §
+    Phase 9, "Post-roadmap addition: incident notifications".
+    """
     config = CorrelationConfig()
 
     # Pass 1: host entity population, over every event (not scoped to
@@ -141,6 +153,7 @@ def run_correlation(db: Session, since: datetime | None = None) -> CorrelationRu
     incident_signatures: dict = {}
     incidents_created = 0
     incidents_joined = 0
+    critical_incident_ids: set = set()
 
     for alert in alerts:
         alert_sig = _build_alert_signature(alert)
@@ -189,6 +202,8 @@ def run_correlation(db: Session, since: datetime | None = None) -> CorrelationRu
         incident.last_activity_at = sig.last_activity_at
         incident.severity = _max_severity(incident.severity, alert.severity)
         incident.title = generate_title(list(incident.alerts))
+        if incident.severity == Severity.CRITICAL:
+            critical_incident_ids.add(incident.id)
 
         method = dict(incident.correlation_method or {})
         alerts_method = dict(method.get("alerts", {}))
@@ -205,6 +220,18 @@ def run_correlation(db: Session, since: datetime | None = None) -> CorrelationRu
             incidents_joined += 1
 
     db.flush()
+
+    if notifier is not None:
+        for incident_id in critical_incident_ids:
+            incident = db.get(Incident, incident_id)
+            notifier.notify(
+                NotificationPayload(
+                    incident_id=incident.id,
+                    title=incident.title,
+                    severity=str(incident.severity),
+                    alert_count=len(incident.alerts),
+                )
+            )
 
     if incidents_created:
         incidents_created_total.inc(incidents_created)
