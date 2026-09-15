@@ -5,13 +5,15 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.api.deps import PageParams, apply_sort, pagination_params
+from app.auth.deps import CurrentUser, get_current_user
+from app.core.audit import record_audit
 from app.core.config import get_settings
 from app.core.exceptions import NotFoundError
 from app.db.session import get_db
 from app.models.alert import Alert
 from app.models.detection import Detection
 from app.models.enums import AlertStatus, Severity
-from app.schemas.alert import AlertRead
+from app.schemas.alert import AlertRead, AlertStatusUpdate
 from app.schemas.mitre import AlertMitreMappingRead
 from app.schemas.pagination import Page
 
@@ -62,6 +64,39 @@ def get_alert(alert_id: uuid.UUID, db: Session = Depends(get_db)) -> Alert:
     alert = db.get(Alert, alert_id)
     if alert is None:
         raise NotFoundError("Alert", alert_id)
+    return alert
+
+
+@router.put("/{alert_id}/status", response_model=AlertRead)
+def set_alert_status(
+    alert_id: uuid.UUID,
+    body: AlertStatusUpdate,
+    db: Session = Depends(get_db),
+    current_user: CurrentUser | None = Depends(get_current_user),
+) -> Alert:
+    """Set an alert's triage status — most importantly, marking one a
+    false positive. This is the real data source for rule-tuning
+    suggestions (see GET /detections/tuning-suggestions): a rule with no
+    way to record "this fired but was wrong" has no way to accumulate the
+    feedback the tuning suggestion is computed from. See DEF.md § Phase 3,
+    "Post-roadmap addition: rule tuning suggestions from analyst
+    feedback".
+    """
+    alert = db.get(Alert, alert_id)
+    if alert is None:
+        raise NotFoundError("Alert", alert_id)
+
+    alert.status = body.status
+    record_audit(
+        db,
+        current_user,
+        action="alert.set_status",
+        resource_type="alert",
+        resource_id=alert_id,
+        detail={"status": body.status.value},
+    )
+    db.commit()
+    db.refresh(alert)
     return alert
 
 

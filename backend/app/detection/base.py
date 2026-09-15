@@ -41,6 +41,18 @@ def compute_alert_fingerprint(detection_id: uuid.UUID, matched_event_ids: list[u
     return hashlib.sha256(raw.encode()).hexdigest()
 
 
+def compute_evidence_fingerprint(matched_event_ids: list[uuid.UUID]) -> str:
+    """Identifies "the same exact set of evidence," deliberately without a
+    detection_id — resolves `[[cross-rule-dedup]]`, see DEF.md § Phase 3
+    "Post-roadmap addition: cross-rule fingerprint dedup". Two different
+    rules that land on the identical matched-event set both hash to this
+    same value, unlike `compute_alert_fingerprint` above, which is scoped
+    per-rule by design.
+    """
+    sorted_ids = sorted(str(event_id) for event_id in matched_event_ids)
+    return hashlib.sha256(",".join(sorted_ids).encode()).hexdigest()
+
+
 _SEVERITY_WEIGHT: dict[Severity, float] = {
     Severity.LOW: 0.25,
     Severity.MEDIUM: 0.5,
@@ -90,6 +102,18 @@ class DetectionRule(ABC):
     source_types: ClassVar[tuple[SourceType, ...]]
     default_config: ClassVar[dict] = {}
     mitre_technique_ids: ClassVar[tuple[str, ...]] = ()
+    # The single `default_config` key that most directly controls this
+    # rule's sensitivity, if it has one — raising it always means
+    # "require more evidence to fire" (fewer, not more, alerts) across
+    # every rule that declares one, a deliberately uniform convention so
+    # a single "raise by N%" tuning suggestion is valid regardless of
+    # which rule it targets. None for rules with no single such knob
+    # (keyword-matching rules like suspicious_powershell, or rules whose
+    # config is a window/hours range rather than a sensitivity level).
+    # Added post-roadmap alongside analyst-feedback-driven rule tuning —
+    # see DEF.md § Phase 3, "Post-roadmap addition: rule tuning
+    # suggestions from analyst feedback".
+    primary_threshold_key: ClassVar[str | None] = None
 
     @abstractmethod
     def evaluate(

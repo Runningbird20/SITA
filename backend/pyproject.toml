@@ -16,10 +16,12 @@ dependencies = [
     "prometheus-client>=0.26.0",
     "bcrypt>=5.0.0",
     "redis>=8.1.0",
+    "fpdf2>=2.8.8",
 ]
 
 [dependency-groups]
 dev = [
+    "mutmut>=3.7.0",
     "pip-audit>=2.10.1",
     "pytest>=8.3",
     "pytest-asyncio>=0.24",
@@ -55,3 +57,22 @@ asyncio_mode = "auto"
 
 [tool.coverage.run]
 source = ["app"]
+
+# Post-roadmap addition — resolves WHATNEXT.md's "No mutation testing
+# anywhere" item. Deliberately scoped to the two modules WHATNEXT.md named
+# as highest-stakes (correlation scoring, detection severity/window
+# logic), not the whole `app` tree — coverage percentage only confirms
+# code *ran*, and a full-codebase mutation run is a genuinely large,
+# slow undertaking; a small, targeted pass on the modules where a silent
+# logic bug would be most consequential is the signal boost the item
+# itself asks for. See DEF.md § Phase 11, "Post-roadmap addition:
+# mutation testing".
+[tool.mutmut]
+source_paths = ["app/correlation/scoring.py", "app/detection/base.py"]
+also_copy = ["app/"]
+pytest_add_cli_args_test_selection = [
+    "tests/unit/test_correlation_scoring.py",
+    "tests/unit/test_detection_rules.py",
+    "tests/unit/test_detection_pipeline.py",
+    "tests/unit/test_detection_base.py",
+]

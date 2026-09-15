@@ -1,11 +1,25 @@
+from datetime import timedelta
+
 from sqlalchemy import select
 
 from app.core.metrics import incidents_created_total
 from app.correlation.pipeline import run_correlation
 from app.detection.pipeline import run_detection
 from app.ioc.pipeline import run_ioc_extraction
-from app.models.enums import IncidentStatus
+from app.models.enums import IncidentStatus, SourceType
 from app.models.incident import Incident
+from app.notifications.base import NotificationPayload, Notifier
+from tests.conftest import BRUTE_FORCE_NOW
+
+
+class _RecordingNotifier(Notifier):
+    name = "recording"
+
+    def __init__(self):
+        self.notified: list[NotificationPayload] = []
+
+    def notify(self, payload: NotificationPayload) -> None:
+        self.notified.append(payload)
 
 
 class TestRunCorrelation:
@@ -128,3 +142,85 @@ class TestRunCorrelation:
         assert report.incidents_created == 2
         assert report.incidents_joined == 0
         assert len(db_session.scalars(select(Incident)).all()) == 2
+
+
+class TestNotifications:
+    """Resolves WHATNEXT.md's "Notifications" item — see DEF.md § Phase 9,
+    "Post-roadmap addition: incident notifications".
+    """
+
+    def _critical_events(self, make_event, source_ip="198.51.100.1", dest_host="db01.internal"):
+        # 10 failures then a success from the same source/host escalates
+        # ssh_brute_force to CRITICAL (see app/detection/ssh_brute_force.py).
+        events = [
+            make_event(
+                SourceType.AUTH,
+                BRUTE_FORCE_NOW + timedelta(seconds=i * 20),
+                {
+                    "event_result": "failure",
+                    "username": "admin",
+                    "source_ip": source_ip,
+                    "dest_host": dest_host,
+                    "auth_method": "password",
+                },
+                host=dest_host,
+            )
+            for i in range(10)
+        ]
+        events.append(
+            make_event(
+                SourceType.AUTH,
+                BRUTE_FORCE_NOW + timedelta(seconds=10 * 20 + 10),
+                {
+                    "event_result": "success",
+                    "username": "admin",
+                    "source_ip": source_ip,
+                    "dest_host": dest_host,
+                    "auth_method": "password",
+                },
+                host=dest_host,
+            )
+        )
+        return events
+
+    def test_notifies_on_a_new_critical_incident(self, db_session, make_event):
+        self._critical_events(make_event)
+        db_session.commit()
+        run_detection(db_session)
+        db_session.commit()
+
+        notifier = _RecordingNotifier()
+        run_correlation(db_session, notifier=notifier)
+        db_session.commit()
+
+        assert len(notifier.notified) == 1
+        assert notifier.notified[0].severity == "critical"
+        # >= 1, not == 1: the trailing success event can also trip
+        # suspicious_auth_pattern (a new-source-IP/off-hours check) on the
+        # same events, merging into the same incident — not this test's
+        # concern, just not a fixed, predictable count.
+        assert notifier.notified[0].alert_count >= 1
+
+    def test_does_not_notify_for_a_non_critical_incident(self, db_session, brute_force_events):
+        brute_force_events("198.51.100.1", "db01.internal")
+        db_session.commit()
+        run_detection(db_session)
+        db_session.commit()
+
+        notifier = _RecordingNotifier()
+        run_correlation(db_session, notifier=notifier)
+        db_session.commit()
+
+        assert notifier.notified == []
+
+    def test_no_notifier_given_is_a_no_op(self, db_session, make_event):
+        self._critical_events(make_event)
+        db_session.commit()
+        run_detection(db_session)
+        db_session.commit()
+
+        # Must not raise when notifier=None (the default) — the whole
+        # point is that this feature is opt-in.
+        report = run_correlation(db_session)
+        db_session.commit()
+        assert report.incidents_created == 1

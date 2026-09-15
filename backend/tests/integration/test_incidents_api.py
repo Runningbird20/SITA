@@ -119,3 +119,61 @@ class TestListAndGetIncidents:
         response = test_client.get("/api/v1/incidents", params={"sort": "severity"})
         assert response.status_code == 422
         assert response.json()["error"]["code"] == "invalid_query_parameter"
+
+
+class TestExportIncident:
+    """Resolves WHATNEXT.md's "Export" item — see DEF.md § Phase 9,
+    "Post-roadmap addition: incident export (CSV/PDF)".
+    """
+
+    def test_csv_export_contains_the_incident_and_alert_data(self, client):
+        test_client, session_factory = client
+        ids = seed_full_incident(session_factory)
+
+        response = test_client.get(
+            f"/api/v1/incidents/{ids['incident_id']}/export", params={"format": "csv"}
+        )
+
+        assert response.status_code == 200
+        assert response.headers["content-type"].startswith("text/csv")
+        assert "attachment" in response.headers["content-disposition"]
+        body = response.text
+        assert ids["incident_id"] in body
+        assert ids["alert_id"] in body
+        assert "198.51.100.1" in body  # the seeded alert's rationale
+
+    def test_pdf_export_returns_a_real_pdf(self, client):
+        test_client, session_factory = client
+        ids = seed_full_incident(session_factory)
+
+        response = test_client.get(
+            f"/api/v1/incidents/{ids['incident_id']}/export", params={"format": "pdf"}
+        )
+
+        assert response.status_code == 200
+        assert response.headers["content-type"] == "application/pdf"
+        assert response.content.startswith(b"%PDF-")
+
+    def test_csv_is_the_default_format(self, client):
+        test_client, session_factory = client
+        ids = seed_full_incident(session_factory)
+
+        response = test_client.get(f"/api/v1/incidents/{ids['incident_id']}/export")
+
+        assert response.headers["content-type"].startswith("text/csv")
+
+    def test_unrecognized_format_returns_422(self, client):
+        test_client, session_factory = client
+        ids = seed_full_incident(session_factory)
+
+        response = test_client.get(
+            f"/api/v1/incidents/{ids['incident_id']}/export", params={"format": "xml"}
+        )
+
+        assert response.status_code == 422
+        assert response.json()["error"]["code"] == "invalid_query_parameter"
+
+    def test_export_missing_incident_returns_404(self, client):
+        test_client, _ = client
+        response = test_client.get("/api/v1/incidents/00000000-0000-0000-0000-000000000000/export")
+        assert response.status_code == 404

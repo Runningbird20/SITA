@@ -34,6 +34,7 @@ class DetectionCategory(StrEnum):
     NETWORK = "network"
     ENDPOINT = "endpoint"
     WEB = "web"
+    ANOMALY = "anomaly"
 
 
 class Severity(StrEnum):
@@ -92,6 +93,14 @@ class AnalysisTaskType(StrEnum):
     INVESTIGATION_HYPOTHESIS = "investigation_hypothesis"
     INVESTIGATION_STEPS = "investigation_steps"
     MITRE_SUGGESTION = "mitre_suggestion"
+    # Post-roadmap addition — see DEF.md § Phase 7, "Post-roadmap addition:
+    # a conversational interface with an incident". Deliberately not one
+    # of the six TASKS run_triage() iterates: this is user-triggered and
+    # open-ended, not a fixed one-shot-per-incident task, so its turns are
+    # persisted as ChatMessage rows, not AnalysisResult rows. Exists here
+    # only so LLMRequest/metrics/logging have a real task_type label for
+    # it, the same as every other kind of LLM call.
+    CHAT_RESPONSE = "chat_response"
 
 
 class AnalysisValidationStatus(StrEnum):
@@ -127,3 +136,28 @@ class FeedbackRating(StrEnum):
 class UserRole(StrEnum):
     ANALYST = "analyst"
     ADMIN = "admin"
+
+
+class PipelineJobType(StrEnum):
+    PIPELINE_RUN = "pipeline_run"
+    TRIAGE_REANALYZE = "triage_reanalyze"
+
+
+class PipelineJobStatus(StrEnum):
+    PENDING = "pending"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+
+class PipelineStage(StrEnum):
+    DETECTION = "detection"
+    IOC = "ioc"
+    MITRE = "mitre"
+    CORRELATION = "correlation"
+    TRIAGE = "triage"
+
+
+class ChatRole(StrEnum):
+    USER = "user"
+    ASSISTANT = "assistant"

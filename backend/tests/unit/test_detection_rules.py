@@ -1,8 +1,13 @@
 from datetime import UTC, datetime, timedelta
 
+from app.detection.anomalous_volume import AnomalousEventVolumeRule
+from app.detection.data_exfiltration import DataExfiltrationRule
+from app.detection.dns_tunneling import DNSTunnelingRule
 from app.detection.impossible_travel import ImpossibleTravelRule
+from app.detection.lateral_movement import LateralMovementRule
 from app.detection.password_spraying import PasswordSprayingRule
 from app.detection.port_scanning import PortScanningRule
+from app.detection.privilege_escalation import PrivilegeEscalationRule
 from app.detection.repeated_auth_failures import RepeatedAuthFailuresRule
 from app.detection.ssh_brute_force import SSHBruteForceRule
 from app.detection.suspicious_auth_pattern import SuspiciousAuthPatternRule
@@ -296,4 +301,314 @@ class TestRepeatedAuthFailures:
                 auth_event(make_event, i * 20, "failure", "admin", f"198.51.100.{i % 4 + 10}")
             )
         findings = RepeatedAuthFailuresRule().evaluate(db_session, events, {})
+        assert findings == []
+
+
+class TestDNSTunneling:
+    def _dns_event(
+        self,
+        make_event,
+        offset_seconds,
+        query_name,
+        response_code="NOERROR",
+        resolver_ip="10.0.0.2",
+        query_type="A",
+    ):
+        return make_event(
+            SourceType.DNS,
+            NOW + timedelta(seconds=offset_seconds),
+            {
+                "query_name": query_name,
+                "query_type": query_type,
+                "response_code": response_code,
+                "resolver_ip": resolver_ip,
+            },
+        )
+
+    def test_dga_style_cycling_under_shared_suffix_triggers(self, db_session, make_event):
+        # Mirrors data/synthetic_events/dns/suspicious_domain.jsonl: a couple
+        # of NXDOMAIN lookups against random-looking candidate names, then a
+        # resolved name queried for TXT (a classic DNS C2 exfil pattern),
+        # all sharing the ".example" pseudo-TLD.
+        events = [
+            self._dns_event(make_event, 0, "xk29fh3mdq7z.example", response_code="NXDOMAIN"),
+            self._dns_event(make_event, 15, "b7q1lz9wpm2a.example", response_code="NXDOMAIN"),
+            self._dns_event(make_event, 30, "cdn-update-service.example", query_type="TXT"),
+        ]
+        findings = DNSTunnelingRule().evaluate(db_session, events, {})
+        assert len(findings) == 1
+        assert len(findings[0].matched_event_ids) == 3
+        assert findings[0].severity_factors["nxdomain_ratio"] > 0
+
+    def test_ordinary_multi_domain_browsing_does_not_trigger(self, db_session, make_event):
+        # Several distinct, real, low-entropy SLDs sharing a real public
+        # TLD (.com) within one window — the exact shape the suffix-level
+        # grouping deliberately relies on the entropy/NXDOMAIN gate to keep
+        # safe, since it pools all of these into one group.
+        events = [
+            self._dns_event(make_event, 0, "google.com"),
+            self._dns_event(make_event, 5, "github.com"),
+            self._dns_event(make_event, 10, "slack.com"),
+        ]
+        findings = DNSTunnelingRule().evaluate(db_session, events, {})
+        assert findings == []
+
+    def test_below_distinct_name_threshold_does_not_trigger(self, db_session, make_event):
+        events = [
+            self._dns_event(make_event, 0, "xk29fh3mdq7z.example", response_code="NXDOMAIN"),
+            self._dns_event(make_event, 15, "b7q1lz9wpm2a.example", response_code="NXDOMAIN"),
+        ]
+        findings = DNSTunnelingRule().evaluate(db_session, events, {})
+        assert findings == []
+
+    def test_high_entropy_without_nxdomain_still_triggers(self, db_session, make_event):
+        # All resolve successfully (no NXDOMAIN signal), but the labels are
+        # random-looking enough on their own to cross the entropy gate.
+        events = [
+            self._dns_event(make_event, 0, "xk29fh3mdq7z.example"),
+            self._dns_event(make_event, 15, "b7q1lz9wpm2a.example"),
+            self._dns_event(make_event, 30, "mq0zxv8ktn5r.example"),
+        ]
+        findings = DNSTunnelingRule().evaluate(db_session, events, {})
+        assert len(findings) == 1
+        assert findings[0].severity_factors["nxdomain_ratio"] == 0
+        assert findings[0].severity_factors["avg_label_entropy"] > 0
+
+    def test_different_resolvers_are_not_merged(self, db_session, make_event):
+        events = [
+            self._dns_event(
+                make_event,
+                0,
+                "xk29fh3mdq7z.example",
+                response_code="NXDOMAIN",
+                resolver_ip="10.0.0.2",
+            ),
+            self._dns_event(
+                make_event,
+                15,
+                "b7q1lz9wpm2a.example",
+                response_code="NXDOMAIN",
+                resolver_ip="10.0.0.3",
+            ),
+            self._dns_event(
+                make_event,
+                30,
+                "mq0zxv8ktn5r.example",
+                response_code="NXDOMAIN",
+                resolver_ip="10.0.0.4",
+            ),
+        ]
+        findings = DNSTunnelingRule().evaluate(db_session, events, {})
+        assert findings == []
+
+
+class TestAnomalousEventVolume:
+    def _day_events(self, make_event, host, day_offset, count):
+        day = NOW.replace(hour=8, minute=0, second=0, microsecond=0) + timedelta(days=day_offset)
+        return [
+            make_event(
+                SourceType.ENDPOINT,
+                day + timedelta(minutes=i * 3),
+                {
+                    "process_name": "explorer.exe",
+                    "command_line": "C:\\Windows\\explorer.exe",
+                    "pid": 1000 + i,
+                    "user": "jrivera",
+                },
+                host=host,
+            )
+            for i in range(count)
+        ]
+
+    def test_volume_spike_after_baseline_triggers(self, db_session, make_event):
+        events = []
+        for day_offset, count in enumerate([5, 4, 6, 5, 4]):
+            events += self._day_events(make_event, "ws-20.internal", day_offset, count)
+        events += self._day_events(make_event, "ws-20.internal", 5, 25)
+
+        findings = AnomalousEventVolumeRule().evaluate(db_session, events, {})
+        assert len(findings) == 1
+        assert len(findings[0].matched_event_ids) == 25
+        assert findings[0].severity_factors["baseline_days"] == 5
+
+    def test_normal_day_within_baseline_does_not_trigger(self, db_session, make_event):
+        events = []
+        for day_offset, count in enumerate([5, 4, 6, 5, 4]):
+            events += self._day_events(make_event, "ws-21.internal", day_offset, count)
+        # One more ordinary day, same shape as the baseline itself.
+        events += self._day_events(make_event, "ws-21.internal", 5, 5)
+
+        findings = AnomalousEventVolumeRule().evaluate(db_session, events, {})
+        assert findings == []
+
+    def test_insufficient_baseline_history_does_not_trigger(self, db_session, make_event):
+        events = []
+        # Only 2 prior days — below the default min_baseline_days of 3 —
+        # even though the following day is a huge, genuine spike.
+        for day_offset, count in enumerate([5, 4]):
+            events += self._day_events(make_event, "ws-22.internal", day_offset, count)
+        events += self._day_events(make_event, "ws-22.internal", 2, 30)
+
+        findings = AnomalousEventVolumeRule().evaluate(db_session, events, {})
+        assert findings == []
+
+    def test_below_min_current_day_count_does_not_trigger(self, db_session, make_event):
+        events = []
+        # A steady 1-event/day baseline, then a day with only 3 events —
+        # statistically anomalous (z-score comfortably over threshold) but
+        # too small in absolute terms to be worth an alert.
+        for day_offset in range(4):
+            events += self._day_events(make_event, "ws-23.internal", day_offset, 1)
+        events += self._day_events(make_event, "ws-23.internal", 4, 3)
+
+        findings = AnomalousEventVolumeRule().evaluate(db_session, events, {})
+        assert findings == []
+
+    def test_different_hosts_do_not_share_a_baseline(self, db_session, make_event):
+        events = []
+        for day_offset, count in enumerate([5, 4, 6, 5, 4]):
+            events += self._day_events(make_event, "ws-24.internal", day_offset, count)
+        # A second host with only one day of history and a large count —
+        # its own insufficient baseline must not borrow ws-24's.
+        events += self._day_events(make_event, "ws-25.internal", 5, 25)
+
+        findings = AnomalousEventVolumeRule().evaluate(db_session, events, {})
+        assert findings == []
+
+
+class TestLateralMovement:
+    def _login(self, make_event, offset_seconds, username, host, result="success"):
+        return make_event(
+            SourceType.AUTH,
+            NOW + timedelta(seconds=offset_seconds),
+            {
+                "event_result": result,
+                "username": username,
+                "source_ip": "10.0.0.77",
+                "dest_host": host,
+                "auth_method": "publickey",
+            },
+        )
+
+    def test_many_distinct_hosts_triggers(self, db_session, make_event):
+        events = [
+            self._login(make_event, i * 60, "mward", host)
+            for i, host in enumerate(["app01.internal", "app02.internal", "db02.internal"])
+        ]
+        findings = LateralMovementRule().evaluate(db_session, events, {})
+        assert len(findings) == 1
+        assert findings[0].severity_factors["distinct_hosts"] == 3
+
+    def test_below_threshold_does_not_trigger(self, db_session, make_event):
+        events = [
+            self._login(make_event, i * 60, "mward", host)
+            for i, host in enumerate(["app01.internal", "app02.internal"])
+        ]
+        findings = LateralMovementRule().evaluate(db_session, events, {})
+        assert findings == []
+
+    def test_repeated_logins_to_one_host_do_not_trigger(self, db_session, make_event):
+        events = [self._login(make_event, i * 30, "mward", "app01.internal") for i in range(5)]
+        findings = LateralMovementRule().evaluate(db_session, events, {})
+        assert findings == []
+
+    def test_failed_logins_do_not_count(self, db_session, make_event):
+        events = [
+            self._login(make_event, i * 60, "mward", host, result="failure")
+            for i, host in enumerate(["app01.internal", "app02.internal", "db02.internal"])
+        ]
+        findings = LateralMovementRule().evaluate(db_session, events, {})
+        assert findings == []
+
+    def test_different_usernames_do_not_combine(self, db_session, make_event):
+        events = [
+            self._login(make_event, 0, "mward", "app01.internal"),
+            self._login(make_event, 60, "jsmith", "app02.internal"),
+            self._login(make_event, 120, "svc-app", "db02.internal"),
+        ]
+        findings = LateralMovementRule().evaluate(db_session, events, {})
+        assert findings == []
+
+
+class TestDataExfiltration:
+    def _transfer(self, make_event, offset_seconds, src_ip, dst_ip, bytes_sent):
+        return make_event(
+            SourceType.NETWORK,
+            NOW + timedelta(seconds=offset_seconds),
+            {
+                "src_ip": src_ip,
+                "src_port": 51000,
+                "dst_ip": dst_ip,
+                "dst_port": 443,
+                "protocol": "tcp",
+                "bytes_sent": bytes_sent,
+                "bytes_received": 500,
+            },
+        )
+
+    def test_large_outbound_transfer_triggers(self, db_session, make_event):
+        events = [
+            self._transfer(make_event, 0, "10.0.0.50", "203.0.113.44", 22_000_000),
+            self._transfer(make_event, 70, "10.0.0.50", "203.0.113.44", 21_000_000),
+            self._transfer(make_event, 160, "10.0.0.50", "203.0.113.91", 19_000_000),
+        ]
+        findings = DataExfiltrationRule().evaluate(db_session, events, {})
+        assert len(findings) == 1
+        assert findings[0].severity_factors["total_bytes_sent"] == 62_000_000
+
+    def test_below_threshold_does_not_trigger(self, db_session, make_event):
+        events = [self._transfer(make_event, 0, "10.0.0.50", "203.0.113.44", 1_000_000)]
+        findings = DataExfiltrationRule().evaluate(db_session, events, {})
+        assert findings == []
+
+    def test_internal_destination_does_not_trigger(self, db_session, make_event):
+        events = [self._transfer(make_event, 0, "10.0.0.50", "10.0.0.60", 60_000_000)]
+        findings = DataExfiltrationRule().evaluate(db_session, events, {})
+        assert findings == []
+
+    def test_documentation_range_destinations_count_as_external(self, db_session, make_event):
+        # RFC 5737 TEST-NET ranges (198.51.100.0/24, 203.0.113.0/24) are
+        # what this project's own synthetic data uses to represent
+        # external/attacker addresses — Python's ip.is_private flags them
+        # as private, so this rule must not rely on that alone.
+        events = [self._transfer(make_event, 0, "10.0.0.50", "198.51.100.9", 60_000_000)]
+        findings = DataExfiltrationRule().evaluate(db_session, events, {})
+        assert len(findings) == 1
+
+
+class TestPrivilegeEscalation:
+    def _endpoint_event(self, make_event, command_line, process_name="cmd.exe"):
+        return make_event(
+            SourceType.ENDPOINT,
+            NOW,
+            {
+                "process_name": process_name,
+                "command_line": command_line,
+                "pid": 1234,
+                "user": "jsmith",
+            },
+        )
+
+    def test_add_admin_account_triggers(self, db_session, make_event):
+        event = self._endpoint_event(make_event, "net user backdoor P@ssw0rd123 /add")
+        findings = PrivilegeEscalationRule().evaluate(db_session, [event], {})
+        assert len(findings) == 1
+        assert "add_admin_account" in findings[0].severity_factors["matched_categories"]
+
+    def test_sudo_elevation_triggers(self, db_session, make_event):
+        event = self._endpoint_event(make_event, "sudo su -", process_name="bash")
+        findings = PrivilegeEscalationRule().evaluate(db_session, [event], {})
+        assert len(findings) == 1
+        assert "elevated_shell" in findings[0].severity_factors["matched_categories"]
+
+    def test_multiple_indicators_increase_confidence(self, db_session, make_event):
+        event = self._endpoint_event(make_event, "whoami /priv && sudo su -", process_name="bash")
+        findings = PrivilegeEscalationRule().evaluate(db_session, [event], {})
+        assert len(findings) == 1
+        assert findings[0].confidence > 0.55
+        assert len(findings[0].severity_factors["matched_categories"]) >= 2
+
+    def test_benign_command_does_not_trigger(self, db_session, make_event):
+        event = self._endpoint_event(make_event, "ls -la /home/jsmith")
+        findings = PrivilegeEscalationRule().evaluate(db_session, [event], {})
         assert findings == []

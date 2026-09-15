@@ -12,6 +12,7 @@ from app.models.enums import IncidentStatus, Severity
 if TYPE_CHECKING:
     from app.models.alert import Alert
     from app.models.analysis_result import AnalysisResult
+    from app.models.chat_message import ChatMessage
     from app.models.recommendation import Recommendation
 
 
@@ -38,3 +39,6 @@ class Incident(UUIDPKMixin, TimestampMixin, Base):
     alerts: Mapped[list["Alert"]] = relationship(back_populates="incident")
     analysis_results: Mapped[list["AnalysisResult"]] = relationship(back_populates="incident")
     recommendations: Mapped[list["Recommendation"]] = relationship(back_populates="incident")
+    chat_messages: Mapped[list["ChatMessage"]] = relationship(
+        back_populates="incident", cascade="all, delete-orphan", order_by="ChatMessage.created_at"
+    )

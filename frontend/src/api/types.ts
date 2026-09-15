@@ -29,6 +29,7 @@ export type AnalysisTaskType =
   | "mitre_suggestion";
 export type AnalysisValidationStatus = "valid" | "invalid" | "timeout" | "provider_error";
 export type UserRole = "analyst" | "admin";
+export type ChatRole = "user" | "assistant";
 
 export interface User {
   id: string;
@@ -162,6 +163,32 @@ export interface DetectionDetail extends Detection {
   mitre_techniques: MitreTechnique[];
 }
 
+export interface ChatMessage {
+  id: string;
+  incident_id: string;
+  role: ChatRole;
+  content: string;
+  provider: string | null;
+  model: string | null;
+  prompt_version: string | null;
+  validation_status: AnalysisValidationStatus | null;
+  confidence: number | null;
+  latency_ms: number | null;
+  created_at: string;
+}
+
+export interface TuningSuggestion {
+  rule_key: string;
+  rule_name: string;
+  total_alerts: number;
+  false_positive_count: number;
+  false_positive_rate: number;
+  threshold_key: string;
+  current_threshold_value: number;
+  suggested_threshold_value: number;
+  rationale: string;
+}
+
 export interface AlertMitreMapping {
   technique: MitreTechnique;
   source: MitreMappingSource;
@@ -285,4 +312,28 @@ export interface PipelineRunReport {
   mitre: MitreMappingReport;
   correlation: CorrelationRunReport;
   triage: TriageRunReport;
+}
+
+// POST /pipeline/run and /pipeline/reanalyze now schedule a background job
+// rather than blocking the request — see DEF.md § Phase 9, "Post-roadmap
+// addition: background pipeline jobs". `result` is `PipelineRunReport` for
+// job_type "pipeline_run", `TriageRunReport` for "triage_reanalyze"; null
+// until the job reaches "completed".
+export type PipelineJobType = "pipeline_run" | "triage_reanalyze";
+export type PipelineJobStatus = "pending" | "running" | "completed" | "failed";
+export type PipelineStage = "detection" | "ioc" | "mitre" | "correlation" | "triage";
+
+export interface PipelineJob {
+  id: string;
+  job_type: PipelineJobType;
+  status: PipelineJobStatus;
+  since: string | null;
+  current_stage: PipelineStage | null;
+  progress_current: number | null;
+  progress_total: number | null;
+  result: PipelineRunReport | TriageRunReport | null;
+  error: string | null;
+  created_at: string;
+  started_at: string | null;
+  completed_at: string | null;
 }
